@@ -6,7 +6,8 @@ const auth = new Hono<{ Bindings: Env }>();
 
 // Google OAuth: redirect to Google consent screen
 auth.get('/google', (c) => {
-  const redirectUri = `${c.env.APP_URL}/api/auth/google/callback`;
+  const workerOrigin = new URL(c.req.url).origin;
+  const redirectUri = `${workerOrigin}/api/auth/google/callback`;
   const params = new URLSearchParams({
     client_id: c.env.GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri,
@@ -23,7 +24,8 @@ auth.get('/google/callback', async (c) => {
   const code = c.req.query('code');
   if (!code) return c.json({ error: 'Missing code' }, 400);
 
-  const redirectUri = `${c.env.APP_URL}/api/auth/google/callback`;
+  const workerOrigin = new URL(c.req.url).origin;
+  const redirectUri = `${workerOrigin}/api/auth/google/callback`;
 
   // Exchange code for tokens
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -97,7 +99,8 @@ auth.get('/github', async (c) => {
   const user = c.get('user');
   if (!user) return c.json({ error: 'Must be logged in' }, 401);
 
-  const redirectUri = `${c.env.APP_URL}/api/auth/github/callback`;
+  const workerOrigin = new URL(c.req.url).origin;
+  const redirectUri = `${workerOrigin}/api/auth/github/callback`;
   const state = btoa(JSON.stringify({ userId: user.sub }));
   const params = new URLSearchParams({
     client_id: c.env.GITHUB_CLIENT_ID,
