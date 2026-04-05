@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env, GoogleTokenResponse, GoogleUserInfo } from '../types';
-import { createToken } from '../middleware/auth';
+import { createToken, authMiddleware } from '../middleware/auth';
 
 const auth = new Hono<{ Bindings: Env }>();
 
@@ -96,9 +96,8 @@ auth.get('/google/callback', async (c) => {
 });
 
 // GitHub OAuth: redirect to GitHub consent
-auth.get('/github', async (c) => {
+auth.get('/github', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (!user) return c.json({ error: 'Must be logged in' }, 401);
 
   const workerOrigin = new URL(c.req.url).origin;
   const redirectUri = `${workerOrigin}/api/auth/github/callback`;
@@ -164,9 +163,8 @@ auth.get('/github/callback', async (c) => {
 });
 
 // Get current user
-auth.get('/me', async (c) => {
+auth.get('/me', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
   const dbUser = await c.env.DB.prepare(
     'SELECT id, tenant_id, email, display_name, photo_url, github_username, role, created_at FROM users WHERE id = ?'
