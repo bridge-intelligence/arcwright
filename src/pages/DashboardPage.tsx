@@ -218,6 +218,12 @@ export default function DashboardPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
+                      {repo.status === 'error' && (
+                        <button onClick={async (e) => { e.stopPropagation(); await reposApi.retry(repo.id); loadData(); }}
+                          className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-blue-400 hover:bg-blue-400/10 border border-blue-500/20">
+                          <RefreshCw className="w-3 h-3" /> Retry
+                        </button>
+                      )}
                       <button onClick={(e) => handleDisconnect(repo.id, e)} className="p-1 rounded text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100"><Trash2 className="w-3 h-3" /></button>
                       {repo.status === 'ready' && <ExternalLink className="w-3.5 h-3.5 text-zinc-600" />}
                     </div>

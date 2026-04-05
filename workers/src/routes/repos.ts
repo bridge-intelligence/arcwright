@@ -175,6 +175,31 @@ repos.post('/connect', async (c) => {
   return c.json({ id: repoId, status: 'analyzing' }, 201);
 });
 
+// Retry analysis for a failed repo
+repos.post('/:id/retry', async (c) => {
+  const user = c.get('user');
+  const repoId = c.req.param('id');
+
+  const repo = await c.env.DB.prepare(
+    'SELECT * FROM repos WHERE id = ? AND tenant_id = ?'
+  ).bind(repoId, user.tenant_id).first();
+
+  if (!repo) return c.json({ error: 'Not found' }, 404);
+
+  const dbUser = await c.env.DB.prepare('SELECT github_token FROM users WHERE id = ?').bind(user.sub).first();
+  if (!dbUser?.github_token) return c.json({ error: 'GitHub not connected' }, 400);
+
+  // Reset status
+  await c.env.DB.prepare(
+    `UPDATE repos SET status = 'analyzing', updated_at = datetime('now') WHERE id = ?`
+  ).bind(repoId).run();
+
+  const analysisPromise = triggerAnalysis(c.env, repoId, user.tenant_id, repo.full_name as string, repo.default_branch as string, dbUser.github_token as string);
+  c.executionCtx.waitUntil(analysisPromise);
+
+  return c.json({ ok: true, status: 'analyzing' });
+});
+
 // Get single repo with latest analysis
 repos.get('/:id', async (c) => {
   const user = c.get('user');
@@ -296,18 +321,31 @@ async function runAnalysis(env: Env, analysisId: string, repoId: string, tenantI
   if (!treeRes.ok) throw new Error(`Failed to fetch tree: ${treeRes.status}`);
   const tree = await treeRes.json() as { tree: Array<{ path: string; type: string; size?: number; sha: string }> };
 
-  // 2. Identify key files to analyze
+  // 2. Identify HIGH-PRIORITY files to analyze (max 15 to stay under 50 subrequest limit)
+  // Priority: config files, entry points, build files, API routes
+  const priorityPatterns = [
+    /^package\.json$/, /^build\.gradle/, /^pom\.xml$/, /^Cargo\.toml$/,
+    /^docker-compose/, /^Dockerfile$/, /^\.env\.example$/,
+    /^src\/(main|index|app)\.(ts|tsx|js|kt|java|py|go)$/i,
+    /settings\.gradle/, /wrangler\.toml$/, /tsconfig\.json$/,
+  ];
+
   const codeFiles = tree.tree.filter(f =>
     f.type === 'blob' &&
-    f.size && f.size < 100_000 &&
-    /\.(ts|tsx|js|jsx|kt|java|py|go|rs|yaml|yml|json|toml|xml|gradle|pom|dockerfile|docker-compose)$/i.test(f.path) &&
-    !f.path.includes('node_modules') &&
-    !f.path.includes('.lock') &&
-    !f.path.includes('dist/')
+    f.size && f.size < 50_000 &&
+    /\.(ts|tsx|js|jsx|kt|java|py|go|rs|yaml|yml|json|toml|xml|gradle|pom|dockerfile)$/i.test(f.path) &&
+    !f.path.includes('node_modules') && !f.path.includes('.lock') && !f.path.includes('dist/')
   );
 
-  // 3. Fetch content of key files (batched, max 50)
-  const filesToAnalyze = codeFiles.slice(0, 50);
+  // Sort: priority files first, then by path depth (shallower = more important)
+  const scored = codeFiles.map(f => ({
+    ...f,
+    priority: priorityPatterns.some(p => p.test(f.path)) ? 0 : 1,
+    depth: f.path.split('/').length,
+  })).sort((a, b) => a.priority - b.priority || a.depth - b.depth);
+
+  // 3. Fetch content of key files (max 15 to stay well under 50 subrequest limit)
+  const filesToAnalyze = scored.slice(0, 15);
   const fileContents: Array<{ path: string; content: string }> = [];
 
   for (const file of filesToAnalyze) {
@@ -324,7 +362,7 @@ async function runAnalysis(env: Env, analysisId: string, repoId: string, tenantI
       );
       if (contentRes.ok) {
         const content = await contentRes.text();
-        fileContents.push({ path: file.path, content: content.slice(0, 5000) });
+        fileContents.push({ path: file.path, content: content.slice(0, 4000) });
       }
     } catch {
       // Skip files that can't be fetched

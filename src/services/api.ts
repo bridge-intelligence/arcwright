@@ -119,6 +119,7 @@ export const reposApi = {
     if (!res.ok) throw new Error('Failed to fetch architecture XML');
     return res.text();
   },
+  retry: (id: string) => request<{ ok: boolean }>(`/repos/${id}/retry`, { method: 'POST' }),
   disconnect: (id: string) => request<{ ok: boolean }>(`/repos/${id}`, { method: 'DELETE' }),
   listAvailable: () => request<{
     username: string;
