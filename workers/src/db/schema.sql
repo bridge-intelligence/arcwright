@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS analyses (
   status TEXT NOT NULL DEFAULT 'queued',
   services_count INTEGER DEFAULT 0,
   issues_count INTEGER DEFAULT 0,
-  xml_key TEXT,
+  xml_content TEXT,
   summary TEXT,
   started_at TEXT,
   completed_at TEXT,

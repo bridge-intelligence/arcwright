@@ -1,6 +1,5 @@
 export interface Env {
   DB: D1Database;
-  STORAGE: R2Bucket;
   AI: Ai;
   ENVIRONMENT: string;
   APP_URL: string;

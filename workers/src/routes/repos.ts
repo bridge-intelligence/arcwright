@@ -161,7 +161,7 @@ repos.get('/:id', async (c) => {
   return c.json({ ...repo, latest_analysis: latestAnalysis, issues });
 });
 
-// Get XML architecture doc from R2
+// Get XML architecture doc from D1
 repos.get('/:id/architecture.xml', async (c) => {
   const user = c.get('user');
   const repoId = c.req.param('id');
@@ -173,17 +173,14 @@ repos.get('/:id/architecture.xml', async (c) => {
   if (!repo) return c.json({ error: 'Not found' }, 404);
 
   const latestAnalysis = await c.env.DB.prepare(
-    `SELECT xml_key FROM analyses WHERE repo_id = ? AND status = 'completed' ORDER BY created_at DESC LIMIT 1`
+    `SELECT xml_content FROM analyses WHERE repo_id = ? AND status = 'completed' ORDER BY created_at DESC LIMIT 1`
   ).bind(repoId).first();
 
-  if (!latestAnalysis?.xml_key) {
+  if (!latestAnalysis?.xml_content) {
     return c.json({ error: 'No analysis available' }, 404);
   }
 
-  const obj = await c.env.STORAGE.get(latestAnalysis.xml_key as string);
-  if (!obj) return c.json({ error: 'XML not found in storage' }, 404);
-
-  return new Response(obj.body, {
+  return new Response(latestAnalysis.xml_content as string, {
     headers: { 'Content-Type': 'application/xml' },
   });
 });
@@ -356,20 +353,13 @@ Be thorough. Identify ALL services, their connections, and any architectural iss
 
   const xmlContent = (aiResponse as { response?: string }).response || '<architecture><error>No response from AI</error></architecture>';
 
-  // 6. Store XML in R2
-  const xmlKey = `analyses/${tenantId}/${repoId}/${analysisId}.xml`;
-  await env.STORAGE.put(xmlKey, xmlContent, {
-    httpMetadata: { contentType: 'application/xml' },
-    customMetadata: { repo: fullName, branch, analysisId },
-  });
-
-  // 7. Parse issue counts from XML
+  // 6. Parse issue counts from XML
   const servicesMatch = xmlContent.match(/<service /g);
   const issuesMatch = xmlContent.match(/<issue /g);
   const servicesCount = servicesMatch ? servicesMatch.length : 0;
   const issuesCount = issuesMatch ? issuesMatch.length : 0;
 
-  // 8. Extract and store issues
+  // 7. Extract and store issues
   const issueRegex = /<issue\s+type="([^"]*?)"\s+severity="([^"]*?)"\s+title="([^"]*?)"(?:\s+file_path="([^"]*?)")?(?:\s+line="([^"]*?)")?[^>]*>([\s\S]*?)<\/issue>/g;
   let match;
   while ((match = issueRegex.exec(xmlContent)) !== null) {
@@ -383,13 +373,13 @@ Be thorough. Identify ALL services, their connections, and any architectural iss
     ).run();
   }
 
-  // 9. Update analysis record
+  // 8. Update analysis record (store XML inline in D1)
   await env.DB.prepare(
-    `UPDATE analyses SET status = 'completed', xml_key = ?, services_count = ?, issues_count = ?,
+    `UPDATE analyses SET status = 'completed', xml_content = ?, services_count = ?, issues_count = ?,
      summary = ?, completed_at = datetime('now') WHERE id = ?`
-  ).bind(xmlKey, servicesCount, issuesCount, `${servicesCount} services, ${issuesCount} issues found`, analysisId).run();
+  ).bind(xmlContent, servicesCount, issuesCount, `${servicesCount} services, ${issuesCount} issues found`, analysisId).run();
 
-  // 10. Update repo status
+  // 9. Update repo status
   await env.DB.prepare(
     `UPDATE repos SET status = 'ready', last_analyzed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
   ).bind(repoId).run();
