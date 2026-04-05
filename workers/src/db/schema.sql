@@ -25,9 +25,21 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  description TEXT,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS repos (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  project_id TEXT REFERENCES projects(id),
   connected_by TEXT NOT NULL REFERENCES users(id),
   github_repo_id INTEGER,
   full_name TEXT NOT NULL,
@@ -75,6 +87,8 @@ CREATE TABLE IF NOT EXISTS analysis_issues (
 CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_users_google ON users(google_id);
 CREATE INDEX IF NOT EXISTS idx_users_github ON users(github_id);
+CREATE INDEX IF NOT EXISTS idx_projects_tenant ON projects(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_repos_project ON repos(project_id);
 CREATE INDEX IF NOT EXISTS idx_repos_tenant ON repos(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_repos_full_name ON repos(full_name);
 CREATE INDEX IF NOT EXISTS idx_analyses_repo ON analyses(repo_id);

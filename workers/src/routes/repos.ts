@@ -19,28 +19,54 @@ repos.get('/', async (c) => {
   return c.json(results.results);
 });
 
-// List available GitHub repos (not yet connected)
+// List available GitHub repos grouped by owner/org
 repos.get('/github/available', async (c) => {
   const user = c.get('user');
-  const dbUser = await c.env.DB.prepare('SELECT github_token FROM users WHERE id = ?').bind(user.sub).first();
+  const dbUser = await c.env.DB.prepare('SELECT github_token, github_username FROM users WHERE id = ?').bind(user.sub).first();
 
   if (!dbUser?.github_token) {
     return c.json({ error: 'GitHub not connected' }, 400);
   }
 
-  // Fetch repos from GitHub
-  const ghRes = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100', {
-    headers: {
-      Authorization: `Bearer ${dbUser.github_token}`,
-      'User-Agent': 'Arcwright',
-    },
-  });
+  const ghHeaders = {
+    Authorization: `Bearer ${dbUser.github_token}`,
+    'User-Agent': 'Arcwright',
+  };
 
-  if (!ghRes.ok) {
-    return c.json({ error: 'Failed to fetch GitHub repos' }, 502);
+  // Fetch user repos + org repos in parallel
+  const [userReposRes, orgsRes] = await Promise.all([
+    fetch('https://api.github.com/user/repos?sort=updated&per_page=100&affiliation=owner', { headers: ghHeaders }),
+    fetch('https://api.github.com/user/orgs?per_page=100', { headers: ghHeaders }),
+  ]);
+
+  const allRepos: GitHubRepo[] = [];
+
+  if (userReposRes.ok) {
+    const userRepos: GitHubRepo[] = await userReposRes.json();
+    allRepos.push(...userRepos);
   }
 
-  const ghRepos: GitHubRepo[] = await ghRes.json();
+  // Fetch repos for each org
+  if (orgsRes.ok) {
+    const orgs = await orgsRes.json() as Array<{ login: string }>;
+    const orgRepoFetches = orgs.map(org =>
+      fetch(`https://api.github.com/orgs/${org.login}/repos?sort=updated&per_page=100`, { headers: ghHeaders })
+        .then(r => r.ok ? r.json() as Promise<GitHubRepo[]> : [])
+        .catch(() => [] as GitHubRepo[])
+    );
+    const orgRepoArrays = await Promise.all(orgRepoFetches);
+    for (const repos of orgRepoArrays) {
+      allRepos.push(...repos);
+    }
+  }
+
+  // Deduplicate by id
+  const seen = new Set<number>();
+  const dedupedRepos = allRepos.filter(r => {
+    if (seen.has(r.id)) return false;
+    seen.add(r.id);
+    return true;
+  });
 
   // Filter out already connected ones
   const connected = await c.env.DB.prepare(
@@ -48,26 +74,37 @@ repos.get('/github/available', async (c) => {
   ).bind(user.tenant_id).all();
   const connectedIds = new Set(connected.results.map(r => r.github_repo_id));
 
-  const available = ghRepos
-    .filter(r => !connectedIds.has(r.id))
-    .map(r => ({
-      id: r.id,
-      name: r.name,
-      full_name: r.full_name,
-      default_branch: r.default_branch,
-      private: r.private,
-      language: r.language,
-      description: r.description,
-      updated_at: r.updated_at,
-    }));
+  // Group by owner
+  const grouped: Record<string, Array<{
+    id: number; name: string; full_name: string; default_branch: string;
+    private: boolean; language: string | null; description: string | null; updated_at: string;
+  }>> = {};
 
-  return c.json(available);
+  for (const r of dedupedRepos) {
+    if (connectedIds.has(r.id)) continue;
+    const owner = r.full_name.split('/')[0];
+    if (!grouped[owner]) grouped[owner] = [];
+    grouped[owner].push({
+      id: r.id, name: r.name, full_name: r.full_name,
+      default_branch: r.default_branch, private: r.private,
+      language: r.language, description: r.description, updated_at: r.updated_at,
+    });
+  }
+
+  return c.json({
+    username: dbUser.github_username,
+    organizations: Object.entries(grouped).map(([owner, repos]) => ({
+      name: owner,
+      is_personal: owner === dbUser.github_username,
+      repos,
+    })),
+  });
 });
 
-// Connect a GitHub repo
+// Connect a GitHub repo (optionally to a project)
 repos.post('/connect', async (c) => {
   const user = c.get('user');
-  const body = await c.req.json<{ full_name: string }>();
+  const body = await c.req.json<{ full_name: string; project_id?: string }>();
 
   if (!body.full_name) {
     return c.json({ error: 'full_name required' }, 400);
@@ -127,12 +164,13 @@ repos.post('/connect', async (c) => {
   // Save repo
   const repoId = crypto.randomUUID();
   await c.env.DB.prepare(
-    `INSERT INTO repos (id, tenant_id, connected_by, github_repo_id, full_name, name, default_branch, webhook_id, webhook_secret, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'analyzing')`
-  ).bind(repoId, user.tenant_id, user.sub, ghRepo.id, ghRepo.full_name, ghRepo.name, ghRepo.default_branch, webhookId, webhookSecret).run();
+    `INSERT INTO repos (id, tenant_id, project_id, connected_by, github_repo_id, full_name, name, default_branch, webhook_id, webhook_secret, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'analyzing')`
+  ).bind(repoId, user.tenant_id, body.project_id || null, user.sub, ghRepo.id, ghRepo.full_name, ghRepo.name, ghRepo.default_branch, webhookId, webhookSecret).run();
 
-  // Trigger initial analysis
-  await triggerAnalysis(c.env, repoId, user.tenant_id, ghRepo.full_name, ghRepo.default_branch, dbUser.github_token as string);
+  // Trigger analysis in background (non-blocking via waitUntil)
+  const analysisPromise = triggerAnalysis(c.env, repoId, user.tenant_id, ghRepo.full_name, ghRepo.default_branch, dbUser.github_token as string);
+  c.executionCtx.waitUntil(analysisPromise);
 
   return c.json({ id: repoId, status: 'analyzing' }, 201);
 });
@@ -379,10 +417,149 @@ Be thorough. Identify ALL services, their connections, and any architectural iss
      summary = ?, completed_at = datetime('now') WHERE id = ?`
   ).bind(xmlContent, servicesCount, issuesCount, `${servicesCount} services, ${issuesCount} issues found`, analysisId).run();
 
-  // 9. Update repo status
+  // 9. Push architecture docs to arcwright branch in the repo
+  try {
+    await pushToArcwrightBranch(fullName, branch, xmlContent, servicesCount, issuesCount, githubToken);
+  } catch (err) {
+    console.error('Failed to push to arcwright branch:', err);
+    // Non-fatal — analysis still succeeded
+  }
+
+  // 10. Update repo status
   await env.DB.prepare(
     `UPDATE repos SET status = 'ready', last_analyzed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
   ).bind(repoId).run();
+}
+
+// Push generated architecture docs to an `arcwright` branch in the repo
+async function pushToArcwrightBranch(
+  fullName: string, baseBranch: string, xmlContent: string,
+  servicesCount: number, issuesCount: number, githubToken: string
+) {
+  const ghHeaders = {
+    Authorization: `Bearer ${githubToken}`,
+    'User-Agent': 'Arcwright',
+    'Content-Type': 'application/json',
+  };
+
+  const branchName = 'arcwright';
+  const now = new Date().toISOString();
+
+  // 1. Get the base branch SHA
+  const baseRef = await fetch(`https://api.github.com/repos/${fullName}/git/ref/heads/${baseBranch}`, {
+    headers: ghHeaders,
+  });
+  if (!baseRef.ok) throw new Error(`Failed to get base ref: ${baseRef.status}`);
+  const baseData = await baseRef.json() as { object: { sha: string } };
+  const baseSha = baseData.object.sha;
+
+  // 2. Check if arcwright branch exists, create if not
+  const branchCheck = await fetch(`https://api.github.com/repos/${fullName}/git/ref/heads/${branchName}`, {
+    headers: ghHeaders,
+  });
+
+  if (!branchCheck.ok) {
+    // Create the branch
+    const createRes = await fetch(`https://api.github.com/repos/${fullName}/git/refs`, {
+      method: 'POST',
+      headers: ghHeaders,
+      body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: baseSha }),
+    });
+    if (!createRes.ok) throw new Error(`Failed to create branch: ${createRes.status}`);
+  }
+
+  // 3. Build the README.md for the arcwright branch
+  const readmeContent = `# Architecture Documentation
+
+> Auto-generated by [Arcwright](https://arcwright.pages.dev) on ${now}
+
+## Summary
+
+- **Repository**: ${fullName}
+- **Base branch**: ${baseBranch}
+- **Services detected**: ${servicesCount}
+- **Issues found**: ${issuesCount}
+
+## Files
+
+| File | Description |
+|------|-------------|
+| \`architecture.xml\` | Full architecture document (services, connections, issues) |
+| \`README.md\` | This file |
+
+## How to use
+
+The \`architecture.xml\` file contains a machine-readable description of this repository's architecture including:
+
+- **Tech stack** — languages, frameworks, databases, tools
+- **Services** — each service with endpoints, dependencies, and descriptions
+- **Connections** — how services communicate (HTTP, Kafka, gRPC, etc.)
+- **Issues** — dangling code, circular dependencies, missing docs, security concerns
+
+---
+
+*This branch is managed by Arcwright. It updates automatically on each push to \`${baseBranch}\`.*
+`;
+
+  // 4. Create blobs for each file
+  const files = [
+    { path: 'architecture.xml', content: xmlContent },
+    { path: 'README.md', content: readmeContent },
+  ];
+
+  const blobShas: Array<{ path: string; sha: string }> = [];
+  for (const file of files) {
+    const blobRes = await fetch(`https://api.github.com/repos/${fullName}/git/blobs`, {
+      method: 'POST',
+      headers: ghHeaders,
+      body: JSON.stringify({ content: file.content, encoding: 'utf-8' }),
+    });
+    if (!blobRes.ok) throw new Error(`Failed to create blob for ${file.path}: ${blobRes.status}`);
+    const blob = await blobRes.json() as { sha: string };
+    blobShas.push({ path: file.path, sha: blob.sha });
+  }
+
+  // 5. Create a tree with the new files
+  const treeRes = await fetch(`https://api.github.com/repos/${fullName}/git/trees`, {
+    method: 'POST',
+    headers: ghHeaders,
+    body: JSON.stringify({
+      base_tree: baseSha,
+      tree: blobShas.map(b => ({
+        path: b.path,
+        mode: '100644',
+        type: 'blob',
+        sha: b.sha,
+      })),
+    }),
+  });
+  if (!treeRes.ok) throw new Error(`Failed to create tree: ${treeRes.status}`);
+  const treeData = await treeRes.json() as { sha: string };
+
+  // 6. Create a commit
+  const commitRes = await fetch(`https://api.github.com/repos/${fullName}/git/commits`, {
+    method: 'POST',
+    headers: ghHeaders,
+    body: JSON.stringify({
+      message: `docs(arcwright): update architecture docs\n\n${servicesCount} services, ${issuesCount} issues detected\nGenerated at ${now}`,
+      tree: treeData.sha,
+      parents: [baseSha],
+      author: {
+        name: 'Arcwright',
+        email: 'bot@arcwright.dev',
+        date: now,
+      },
+    }),
+  });
+  if (!commitRes.ok) throw new Error(`Failed to create commit: ${commitRes.status}`);
+  const commitData = await commitRes.json() as { sha: string };
+
+  // 7. Update the branch ref
+  await fetch(`https://api.github.com/repos/${fullName}/git/refs/heads/${branchName}`, {
+    method: 'PATCH',
+    headers: ghHeaders,
+    body: JSON.stringify({ sha: commitData.sha, force: true }),
+  });
 }
 
 export { triggerAnalysis };

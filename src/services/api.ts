@@ -63,6 +63,7 @@ export const authApi = {
 export interface RepoResponse {
   id: string;
   tenant_id: string;
+  project_id: string | null;
   full_name: string;
   name: string;
   status: 'pending' | 'analyzing' | 'ready' | 'error';
@@ -106,9 +107,9 @@ export interface RepoDetail extends Omit<RepoResponse, 'issues'> {
 export const reposApi = {
   list: () => request<RepoResponse[]>('/repos'),
   get: (id: string) => request<RepoDetail>(`/repos/${id}`),
-  connect: (fullName: string) => request<{ id: string; status: string }>('/repos/connect', {
+  connect: (fullName: string, projectId?: string) => request<{ id: string; status: string }>('/repos/connect', {
     method: 'POST',
-    body: JSON.stringify({ full_name: fullName }),
+    body: JSON.stringify({ full_name: fullName, project_id: projectId }),
   }),
   getArchitectureXml: async (id: string): Promise<string> => {
     const token = getToken();
@@ -119,5 +120,37 @@ export const reposApi = {
     return res.text();
   },
   disconnect: (id: string) => request<{ ok: boolean }>(`/repos/${id}`, { method: 'DELETE' }),
-  listAvailable: () => request<GitHubAvailableRepo[]>('/repos/github/available'),
+  listAvailable: () => request<{
+    username: string;
+    organizations: Array<{
+      name: string;
+      is_personal: boolean;
+      repos: GitHubAvailableRepo[];
+    }>;
+  }>('/repos/github/available'),
+};
+
+// --- Projects ---
+export interface ProjectResponse {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  repo_count: number;
+  analyzed_count: number;
+  created_at: string;
+}
+
+export const projectsApi = {
+  list: () => request<ProjectResponse[]>('/projects'),
+  get: (id: string) => request<ProjectResponse & { repos: RepoResponse[] }>(`/projects/${id}`),
+  create: (name: string, description?: string) => request<{ id: string; name: string; slug: string }>('/projects', {
+    method: 'POST',
+    body: JSON.stringify({ name, description }),
+  }),
+  update: (id: string, data: { name?: string; description?: string }) => request<{ ok: boolean }>(`/projects/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  delete: (id: string) => request<{ ok: boolean }>(`/projects/${id}`, { method: 'DELETE' }),
 };

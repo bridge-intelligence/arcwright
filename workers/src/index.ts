@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { Env } from './types';
 import auth from './routes/auth';
+import projects from './routes/projects';
 import repos from './routes/repos';
 import webhooks from './routes/webhooks';
 
@@ -24,6 +25,7 @@ app.get('/api/health', (c) => c.json({ status: 'ok', environment: c.env.ENVIRONM
 
 // Routes
 app.route('/api/auth', auth);
+app.route('/api/projects', projects);
 app.route('/api/repos', repos);
 app.route('/api/webhooks', webhooks);
 
