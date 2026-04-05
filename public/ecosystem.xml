@@ -1,0 +1,699 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  BRIDGE ECOSYSTEM MASTER ARCHITECTURE XML
+  Complete mapping of all services, wiring, data pipelines,
+  communication channels, triggers, and events.
+  Generated: 2026-03-08
+-->
+<bridge-ecosystem version="1.0" generated="2026-03-08">
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- TIER 0: FRONTEND APPLICATIONS                                      -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <tier name="frontend" order="0">
+
+    <service id="wallet" status="active">
+      <name>Bridge Wallet</name>
+      <repo>bridge-wallet</repo>
+      <tech>React 19, Vite 6, TypeScript, Tailwind, pnpm</tech>
+      <port app="80" dev="3000"/>
+      <image>dev-8c25b812</image>
+      <url external="https://wallet.service.d.bridgeintelligence.ltd"/>
+      <role>End-user wallet: auth, portfolio, send/receive, custody, fiat PKR rails, BTT token ops</role>
+      <components>
+        <component name="Auth Module" type="auth">Bridge-ID OIDC with Authorization Code + PKCE</component>
+        <component name="Portfolio Dashboard" type="ui">Balance tracking, transaction history, charts</component>
+        <component name="Send/Receive" type="ui">Crypto transfers between wallets</component>
+        <component name="Custody Module" type="ui">Deposit/withdraw to/from custody</component>
+        <component name="Fiat Rails" type="ui">PKR IBFT/RAAST bank transfers</component>
+        <component name="Token Ops" type="ui">BTT airdrop, staking, transfers</component>
+        <component name="KYC Onboarding" type="ui">Multi-step identity verification wizard</component>
+      </components>
+      <outbound-connections>
+        <connection target="gateway" protocol="http" direction="two-way" data="All API calls via /api/v1/*"/>
+        <connection target="bridge-id" protocol="http" direction="two-way" data="OIDC auth code + PKCE token exchange"/>
+      </outbound-connections>
+    </service>
+
+    <service id="dlt-console" status="active">
+      <name>Bridge DLT Console</name>
+      <repo>bridge-dlt-console</repo>
+      <tech>React 18, Vite 5, Carbon Design, TypeScript, pnpm</tech>
+      <port app="80" dev="5173"/>
+      <url external="https://dlt.service.d.bridgeintelligence.ltd"/>
+      <role>Enterprise DLT operations dashboard: Corda node mgmt, flow execution, BTT management, FMU audit</role>
+      <components>
+        <component name="Virtual Node Manager" type="ui">Corda v5.2 virtual node lifecycle</component>
+        <component name="CPI/CPK Manager" type="ui">Corda package deployment</component>
+        <component name="Flow Manager" type="ui">Flow invocation and monitoring</component>
+        <component name="BTT Token Manager" type="ui">Supply, mint, burn, airdrop, transfer (1 BTT = 1e8 units)</component>
+        <component name="FMU Monitor" type="ui">Audit trail, AML detection, money flow visualization</component>
+        <component name="RBAC Console" type="ui">8 roles: ADMIN, OPERATOR, CENTRAL_BANK_ISSUER, etc.</component>
+      </components>
+      <outbound-connections>
+        <connection target="orchestra" protocol="http" direction="two-way" data="Corda flows, BTT ops via nginx proxy"/>
+      </outbound-connections>
+    </service>
+
+    <service id="website" status="active">
+      <name>Bridge Website</name>
+      <repo>bridge-website-v2</repo>
+      <tech>Next.js 16, TypeScript, Tailwind, Cloudflare Pages</tech>
+      <url external="https://bridgeintelligence.ltd"/>
+      <role>Marketing website: RTGS, remittance, treasury, compliance content</role>
+    </service>
+
+    <service id="backstage" status="active">
+      <name>Bridge Backstage</name>
+      <repo>bridge-backstage</repo>
+      <tech>Backstage 0.35, Node 22, Yarn 4, Keycloak OIDC</tech>
+      <port app="3000"/>
+      <role>Internal developer portal: service catalog, API discovery</role>
+    </service>
+
+    <service id="console" status="scaffold">
+      <name>Bridge Console</name>
+      <repo>bridge-console</repo>
+      <tech>React 19, Vite 7, TypeScript, Zustand</tech>
+      <role>Planned enterprise workflow automation console (empty skeleton)</role>
+    </service>
+
+    <service id="app" status="placeholder">
+      <name>Bridge App</name>
+      <repo>bridge-app</repo>
+      <role>Future mobile application</role>
+    </service>
+
+    <service id="marketplace" status="placeholder">
+      <name>Bridge Marketplace</name>
+      <repo>bridge-marketplace</repo>
+      <role>Future token/asset marketplace</role>
+    </service>
+  </tier>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- TIER 1: API GATEWAY                                                -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <tier name="gateway" order="1">
+
+    <service id="gateway" status="active">
+      <name>Bridge Gateway</name>
+      <repo>bridge-gateway</repo>
+      <tech>Kotlin, Spring Cloud Gateway, WebFlux, Resilience4j, Redis</tech>
+      <port app="4000" k8s="4000"/>
+      <image>dev-latest</image>
+      <url internal="http://bridge-gateway.bridge-service-stack.svc.cluster.local:4000"
+           external="https://api.gateway.service.d.bridgeintelligence.ltd"/>
+      <role>STATELESS API gateway. Routes /api/v1/* to downstream services. No DB, no business logic.</role>
+      <health endpoint="/actuator/health"/>
+      <components>
+        <component name="Route Engine" type="core">Spring Cloud Gateway route definitions with strip-prefix</component>
+        <component name="Circuit Breaker" type="resilience">Resilience4j per downstream (Orchestra 50%, Custody 30%)</component>
+        <component name="Rate Limiter" type="security">Redis-backed rate limiting per client</component>
+        <component name="Plugin System" type="extension">Audit logging, compliance checking</component>
+      </components>
+      <routes>
+        <route path="/api/v1/custody/**" target="custody" order="1" strip-prefix="0"/>
+        <route path="/api/v1/identity/**" target="bridge-id" order="2" strip-prefix="0"/>
+        <route path="/api/v1/licensing/**" target="licensing" order="3" strip-prefix="0"/>
+        <route path="/api/v1/portfolio/**,/api/v1/transactions/**,/api/v1/prices/**" target="portfolio" order="10" strip-prefix="1"/>
+        <route path="/api/v1/orders/**" target="execution" order="11" strip-prefix="1"/>
+        <route path="/api/v1/market/**" target="marketdata" order="12" strip-prefix="1"/>
+        <route path="/api/v1/accounts/**,/api/v1/postings/**,/api/v1/holds/**" target="ledger" order="13" strip-prefix="1"/>
+        <route path="/api/v1/**" target="orchestra" order="100" strip-prefix="0" note="catch-all"/>
+      </routes>
+      <outbound-connections>
+        <connection target="orchestra" protocol="http" direction="one-way" data="Catch-all /api/v1/**"/>
+        <connection target="custody" protocol="http" direction="one-way" data="/api/v1/custody/**"/>
+        <connection target="bridge-id" protocol="http" direction="one-way" data="/api/v1/identity/**"/>
+        <connection target="licensing" protocol="http" direction="one-way" data="/api/v1/licensing/**"/>
+        <connection target="portfolio" protocol="http" direction="one-way" data="/api/v1/portfolio/**"/>
+        <connection target="execution" protocol="http" direction="one-way" data="/api/v1/orders/**"/>
+        <connection target="marketdata" protocol="http" direction="one-way" data="/api/v1/market/**"/>
+        <connection target="ledger" protocol="http" direction="one-way" data="/api/v1/accounts/**"/>
+        <connection target="redis" protocol="redis" direction="two-way" data="Rate limiting, sessions"/>
+      </outbound-connections>
+      <kafka-topics>
+        <topic name="gateway.audit.events" direction="produce">API audit trail</topic>
+      </kafka-topics>
+    </service>
+  </tier>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- TIER 2: ORCHESTRATION + IDENTITY                                   -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <tier name="orchestration" order="2">
+
+    <service id="orchestra" status="active">
+      <name>Bridge Orchestra</name>
+      <repo>bridge-orchestra</repo>
+      <tech>Kotlin, Spring Boot 3, PostgreSQL, Redis, Kafka, Corda 5.2</tech>
+      <port app="8080" k8s="8080"/>
+      <image>dev-d5dc6bb</image>
+      <url internal="http://bridge-orchestra-api.bridge-service-stack.svc.cluster.local:8080"
+           external="https://api.orchestra.service.d.bridgeintelligence.ltd"/>
+      <role>Central saga orchestrator: workflows, compliance, Corda flows, plugin system, 22+ controllers</role>
+      <health endpoint="/actuator/health"/>
+      <database type="postgresql" name="bridge_orchestra"/>
+      <database type="redis" name="bridge-redis" purpose="sessions, cache, streams"/>
+      <components>
+        <component name="Workflow Engine" type="core">Workflow CRUD + execution with node types</component>
+        <component name="Compliance Engine" type="core">KYC/PEP/Sanctions via Sumsub, Verisys, Orbit, Onfido, Chainalysis</component>
+        <component name="Corda Integration" type="dlt">REST client to Corda nodes (exponential backoff, 3 retries)</component>
+        <component name="Plugin Registry" type="extension">Custody provider, liquidity venue routing</component>
+        <component name="Transaction Engine" type="core">Transaction lifecycle management</component>
+        <component name="BTT Token Manager" type="token">Airdrop (100 BTT * 1e8), savings (7.5% p.a.)</component>
+        <component name="RBAC System" type="security">Tiered permissions with @PreAuthorize</component>
+      </components>
+      <api-endpoints base-path="/api/v1">
+        <endpoint method="POST" path="/workflows" description="Create workflow"/>
+        <endpoint method="POST" path="/workflows/{id}/execute" description="Execute workflow"/>
+        <endpoint method="GET" path="/transactions" description="List transactions"/>
+        <endpoint method="POST" path="/wallets" description="Create crypto wallet"/>
+        <endpoint method="GET" path="/compliance/check" description="Run compliance check"/>
+        <endpoint method="POST" path="/corda/flows" description="Execute Corda flow"/>
+        <endpoint method="GET" path="/onboarding" description="Onboarding flow status"/>
+        <endpoint method="GET" path="/dashboard" description="Platform dashboard"/>
+      </api-endpoints>
+      <outbound-connections>
+        <connection target="custody" protocol="http" direction="two-way" data="Wallet ops, signing, deposits/withdrawals"/>
+        <connection target="ledger" protocol="http" direction="two-way" data="Account queries, posting submissions"/>
+        <connection target="execution" protocol="http" direction="two-way" data="Order submission and status"/>
+        <connection target="portfolio" protocol="http" direction="two-way" data="Portfolio balance queries"/>
+        <connection target="marketdata" protocol="http" direction="two-way" data="Mark price lookups"/>
+        <connection target="postgresql" protocol="jdbc" direction="two-way" data="bridge_orchestra DB"/>
+        <connection target="redis" protocol="redis" direction="two-way" data="Sessions, cache"/>
+        <connection target="vault" protocol="http" direction="one-way" data="Secret injection via agent sidecar"/>
+      </outbound-connections>
+      <kafka-topics>
+        <topic name="bridge.v1.orchestra.*" direction="produce">All orchestra domain events</topic>
+        <topic name="custody.domain.events" direction="consume">Custody confirmations (deposits, withdrawals)</topic>
+        <topic name="execution.domain.events" direction="consume">Trade fill events</topic>
+      </kafka-topics>
+      <triggers>
+        <trigger event="custody.domain.events:deposit.confirmed" action="Progress deposit workflow step"/>
+        <trigger event="execution.domain.events:order.filled" action="Progress trade workflow step"/>
+        <trigger event="compliance.check.completed" action="Update onboarding status"/>
+      </triggers>
+    </service>
+
+    <service id="bridge-id" status="active">
+      <name>Bridge ID</name>
+      <repo>bridge-id</repo>
+      <tech>Kotlin, Spring Boot 3, PostgreSQL, Redis, Kafka, Vault, Twilio</tech>
+      <port app="8086" k8s="8083"/>
+      <image>dev-c40173db</image>
+      <url internal="http://bridge-id.bridge-service-stack.svc.cluster.local:8083"
+           external="https://api.id.service.d.bridgeintelligence.ltd"/>
+      <role>Central identity provider: OIDC, JWT (RS256), KYC, SBT, Web3 auth, social SSO, 14 controllers, 92+ endpoints</role>
+      <health endpoint="/actuator/health"/>
+      <database type="postgresql" name="bridge_id"/>
+      <database type="redis" name="bridge-redis" purpose="sessions, rate limiting"/>
+      <components>
+        <component name="OIDC Provider" type="core">OpenID Connect with RS256 JWT, JWKS at /jwks</component>
+        <component name="Auth Engine" type="core">Login, register, password reset, session management</component>
+        <component name="KYC Onboarding" type="compliance">Email/phone verification, document upload</component>
+        <component name="Web3 Auth" type="blockchain">EVM wallet authentication</component>
+        <component name="Social SSO" type="auth">Google, Facebook OAuth2</component>
+        <component name="SBT Anchor" type="blockchain">Soul Bound Token on Polygon Amoy</component>
+        <component name="ZK Attestation" type="privacy">Zero-knowledge proof attestation</component>
+        <component name="Org Management" type="core">OWNER/ADMIN/MEMBER/VIEWER roles</component>
+      </components>
+      <api-endpoints>
+        <endpoint method="GET" path="/.well-known/openid-configuration" description="OIDC discovery"/>
+        <endpoint method="GET" path="/jwks" description="JSON Web Key Set"/>
+        <endpoint method="POST" path="/api/v1/auth/login" description="User login"/>
+        <endpoint method="POST" path="/api/v1/auth/register" description="User registration"/>
+        <endpoint method="GET" path="/api/v1/profile" description="Get user profile (SBT, roles, links)"/>
+        <endpoint method="POST" path="/api/v1/onboarding" description="Start KYC onboarding"/>
+        <endpoint method="POST" path="/api/v1/web3/auth" description="Web3 wallet auth"/>
+      </api-endpoints>
+      <outbound-connections>
+        <connection target="postgresql" protocol="jdbc" direction="two-way" data="bridge_id DB"/>
+        <connection target="redis" protocol="redis" direction="two-way" data="Sessions, rate limiting"/>
+        <connection target="vault" protocol="http" direction="one-way" data="PII storage, JWT secrets"/>
+      </outbound-connections>
+      <kafka-topics>
+        <topic name="bridge.v1.identity.*" direction="produce">Registration, verification, login events</topic>
+      </kafka-topics>
+      <jwt-config issuer="https://id.bridgeintelligence.ltd" algorithm="RS256"
+                  access-token-ttl="86400s" refresh-token-ttl="604800s"/>
+    </service>
+
+    <service id="licensing" status="active">
+      <name>Bridge Licensing</name>
+      <repo>bridge-licensing</repo>
+      <tech>Kotlin, Spring Boot 3, PostgreSQL, Redis, Stripe</tech>
+      <port app="8082" k8s="8082"/>
+      <image>dev-ab99e2a1</image>
+      <url internal="http://bridge-licensing.bridge-service-stack.svc.cluster.local:8082"/>
+      <role>Multi-tenant management: tenant CRUD, API keys, Stripe billing, feature flags</role>
+      <health endpoint="/actuator/health"/>
+      <database type="postgresql" name="licensing"/>
+      <database type="redis" name="bridge-redis" purpose="cache, rate limiting"/>
+      <components>
+        <component name="Tenant Manager" type="core">CRUD for COMPANY, BANK, INVESTOR, PARTNER types</component>
+        <component name="API Key Manager" type="security">SHA-256 hashed API keys per tenant</component>
+        <component name="Billing Engine" type="payments">Stripe subscriptions and invoices</component>
+        <component name="License Manager" type="core">Per-tenant feature flags and usage tracking</component>
+      </components>
+      <outbound-connections>
+        <connection target="postgresql" protocol="jdbc" direction="two-way" data="licensing DB"/>
+        <connection target="redis" protocol="redis" direction="two-way" data="Cache"/>
+        <connection target="vault" protocol="http" direction="one-way" data="Stripe keys, DB creds"/>
+      </outbound-connections>
+    </service>
+  </tier>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- TIER 3: BUSINESS SERVICES                                          -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <tier name="business-services" order="3">
+
+    <service id="ledger" status="active">
+      <name>Bridge Ledger</name>
+      <repo>bridge-ledger-service</repo>
+      <tech>Kotlin, Spring Boot 3, PostgreSQL, Kafka, Flyway</tech>
+      <port app="8082" k8s="8080"/>
+      <image>dev-d21264cb</image>
+      <url internal="http://bridge-ledger-service.bridge-service-stack.svc.cluster.local:8080"/>
+      <role>SOURCE OF TRUTH for all financial data. Double-entry accounting, immutable postings, holds, balance snapshots.</role>
+      <health endpoint="/actuator/health"/>
+      <database type="postgresql" name="bridge_ledger"/>
+      <invariants>
+        <invariant>sum(debits) == sum(credits) in every transaction</invariant>
+        <invariant>Posted entries are IMMUTABLE — only compensating entries allowed</invariant>
+        <invariant>Inbox table ensures exactly-once processing</invariant>
+        <invariant>Outbox table ensures transactional event publishing</invariant>
+        <invariant>NO other service writes to bridge_ledger DB</invariant>
+      </invariants>
+      <components>
+        <component name="Posting Engine" type="core">Double-entry: debit + credit per entry</component>
+        <component name="Hold Manager" type="core">Balance reservations (ACTIVE, RELEASED, EXPIRED)</component>
+        <component name="Balance Snapshots" type="core">Materialized atomically after every posting</component>
+        <component name="Inbox/Outbox" type="reliability">Exactly-once via inbox dedup + outbox polling (1000ms)</component>
+        <component name="Reconciliation" type="audit">Read-only diff detection</component>
+      </components>
+      <api-endpoints base-path="/v1">
+        <endpoint method="GET" path="/accounts/{id}" description="Get account details"/>
+        <endpoint method="GET" path="/accounts/{id}/balance" description="Materialized balance snapshot"/>
+        <endpoint method="POST" path="/postings" description="Submit double-entry posting"/>
+        <endpoint method="GET" path="/postings" description="Query by correlation ID"/>
+        <endpoint method="POST" path="/holds" description="Request balance hold"/>
+        <endpoint method="PUT" path="/holds/{id}" description="Release/confirm hold"/>
+      </api-endpoints>
+      <outbound-connections>
+        <connection target="postgresql" protocol="jdbc" direction="two-way" data="bridge_ledger DB"/>
+      </outbound-connections>
+      <kafka-topics>
+        <topic name="ledger.domain.events" direction="produce">Posting confirmations, balance updates (via outbox)</topic>
+        <topic name="ledger.recon.alerts" direction="produce">Reconciliation discrepancies</topic>
+        <topic name="custody.domain.events" direction="consume">Deposit confirmed → create postings</topic>
+        <topic name="execution.domain.events" direction="consume">Order filled → create postings + fees</topic>
+      </kafka-topics>
+      <triggers>
+        <trigger event="custody.domain.events:deposit.confirmed" action="Create debit external, credit user posting"/>
+        <trigger event="execution.domain.events:order.filled" action="Create settlement posting + fee posting"/>
+      </triggers>
+    </service>
+
+    <service id="execution" status="active">
+      <name>Bridge Execution</name>
+      <repo>bridge-execution-service</repo>
+      <tech>Kotlin, Spring Boot 3, PostgreSQL, Kafka, Flyway</tech>
+      <port app="8083" k8s="8080"/>
+      <image>dev-5e5248c7</image>
+      <url internal="http://bridge-execution-service.bridge-service-stack.svc.cluster.local:8080"/>
+      <role>Order lifecycle: state machine (PENDING→HELD→EXECUTING→FILLED→SETTLED), hold protocol with Ledger, venue routing</role>
+      <health endpoint="/actuator/health"/>
+      <database type="postgresql" name="bridge_execution"/>
+      <state-machine>
+        <state name="PENDING" transitions="HOLD_REQUESTED"/>
+        <state name="HOLD_REQUESTED" transitions="HELD, REJECTED"/>
+        <state name="HELD" transitions="EXECUTING"/>
+        <state name="EXECUTING" transitions="PARTIALLY_FILLED, FILLED, FAILED"/>
+        <state name="PARTIALLY_FILLED" transitions="FILLED"/>
+        <state name="FILLED" transitions="SETTLED"/>
+        <state name="SETTLED" terminal="true"/>
+        <state name="REJECTED" terminal="true"/>
+        <state name="CANCELLED" terminal="true"/>
+        <state name="FAILED" terminal="true"/>
+      </state-machine>
+      <components>
+        <component name="Order State Machine" type="core">Enforces valid state transitions</component>
+        <component name="Hold Coordinator" type="core">Manages hold protocol with Ledger</component>
+        <component name="Venue Router" type="core">Pluggable venue adapters (Binance, etc.)</component>
+        <component name="Inbox/Outbox" type="reliability">Exactly-once order processing</component>
+      </components>
+      <outbound-connections>
+        <connection target="ledger" protocol="http" direction="two-way" data="Hold request → confirm/release"/>
+        <connection target="postgresql" protocol="jdbc" direction="two-way" data="bridge_execution DB"/>
+      </outbound-connections>
+      <kafka-topics>
+        <topic name="bridge.v1.execution.order.submitted" direction="consume">Inbound order commands</topic>
+        <topic name="bridge.v1.execution.order.filled" direction="produce">Fill confirmations</topic>
+        <topic name="bridge.v1.execution.order.rejected" direction="produce">Rejections</topic>
+        <topic name="bridge.v1.execution.order.cancelled" direction="produce">Cancellations</topic>
+        <topic name="bridge.v1.execution.dlq" direction="produce">Dead letter queue (3 retries)</topic>
+      </kafka-topics>
+    </service>
+
+    <service id="portfolio" status="active">
+      <name>Bridge Portfolio</name>
+      <repo>bridge-portfolio-service</repo>
+      <tech>Kotlin, Spring Boot 3, Redis, Kafka, WebClient</tech>
+      <port app="8085" k8s="8080"/>
+      <image>dev-778490ed</image>
+      <url internal="http://bridge-portfolio-service.bridge-service-stack.svc.cluster.local:8080"/>
+      <role>READ-ONLY portfolio: balance aggregation from Ledger + price valuation from MarketData. Cursor-based pagination.</role>
+      <health endpoint="/actuator/health"/>
+      <database type="redis" name="bridge-redis" purpose="Price cache (Kafka consumer populated)"/>
+      <components>
+        <component name="Portfolio Aggregator" type="core">Combines balance snapshots with mark prices</component>
+        <component name="Transaction History" type="core">Cursor-based pagination from Ledger postings</component>
+        <component name="Price Cache Consumer" type="cache">Kafka consumer updating Redis price cache</component>
+      </components>
+      <outbound-connections>
+        <connection target="ledger" protocol="http" direction="one-way" data="Balance snapshots, posting history (read-only)"/>
+        <connection target="redis" protocol="redis" direction="two-way" data="Price cache"/>
+      </outbound-connections>
+      <kafka-topics>
+        <topic name="bridge.v1.market.price.mark" direction="consume">Updates Redis price cache</topic>
+      </kafka-topics>
+    </service>
+
+    <service id="marketdata" status="active">
+      <name>Bridge MarketData</name>
+      <repo>bridge-marketdata-service</repo>
+      <tech>Kotlin, Spring Boot 3, Redis, Kafka</tech>
+      <port app="8084" k8s="8080"/>
+      <image>dev-1120ab9c</image>
+      <url internal="http://bridge-marketdata-service.bridge-service-stack.svc.cluster.local:8080"/>
+      <role>Real-time price engine: mark prices (5s), VWAP (60s+5m), venue health (60s), outlier detection (Z-score 3.0)</role>
+      <health endpoint="/actuator/health"/>
+      <database type="redis" name="bridge-redis" purpose="Price cache (TTL 30s)"/>
+      <components>
+        <component name="Mark Price Engine" type="core">Median mid-price with outlier filtering</component>
+        <component name="VWAP Calculator" type="core">Rolling VWAP (60s + 5m windows)</component>
+        <component name="Venue Health Monitor" type="monitoring">Connectivity and freshness checking</component>
+        <component name="Outlier Filter" type="quality">Z-score rejection (3 stddev, window 100)</component>
+        <component name="Simulated Venue" type="adapter">BTC/USD, ETH/USD, SOL/USD, BTT/PKR</component>
+      </components>
+      <outbound-connections>
+        <connection target="redis" protocol="redis" direction="two-way" data="Price cache"/>
+      </outbound-connections>
+      <kafka-topics>
+        <topic name="bridge.v1.market.price.mark" direction="produce">Mark prices (5s cadence)</topic>
+        <topic name="bridge.v1.market.price.vwap" direction="produce">VWAP updates (5s cadence)</topic>
+        <topic name="bridge.v1.market.venue.health" direction="produce">Venue health (60s cadence)</topic>
+        <topic name="bridge.v1.market.anomaly" direction="produce">Outlier detections</topic>
+      </kafka-topics>
+    </service>
+
+    <service id="recon" status="partial">
+      <name>Recon Service</name>
+      <repo>bridge-recon-service</repo>
+      <tech>Kotlin, Spring Boot 3</tech>
+      <port app="8087"/>
+      <role>Reconciliation: on-chain vs ledger comparison, discrepancy detection, FMU alerts</role>
+    </service>
+  </tier>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- TIER 4: BLOCKCHAIN + CUSTODY                                       -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <tier name="blockchain" order="4">
+
+    <service id="custody" status="active">
+      <name>Bridge Custody API</name>
+      <repo>bridge-custody-api</repo>
+      <tech>Kotlin, Spring Boot 3, PostgreSQL, Redis, Kafka, BIP-44</tech>
+      <port app="8081" k8s="8081"/>
+      <image>dev-bbf86a99</image>
+      <url internal="http://bridge-custody-api.bridge-service-stack.svc.cluster.local:8081"
+           external="https://api.custody.service.d.bridgeintelligence.ltd"/>
+      <role>HD wallet management, key signing, 3-chain support (EVM/BTC/SOL), multi-sig, gas station</role>
+      <health endpoint="/actuator/health"/>
+      <database type="postgresql" name="bridge_custody"/>
+      <database type="redis" name="bridge-redis" purpose="Session cache"/>
+      <chains>
+        <chain name="EVM" networks="Ethereum, Polygon, Arbitrum"/>
+        <chain name="BTC" networks="Bitcoin mainnet/testnet"/>
+        <chain name="SOL" networks="Solana mainnet/devnet"/>
+      </chains>
+      <components>
+        <component name="HD Wallet Engine" type="core">BIP-44/BIP-49 hierarchical deterministic wallets</component>
+        <component name="Key Signing" type="security">Local keystore or Vault KMS</component>
+        <component name="EVM Adapter" type="chain">Ethereum, Polygon, Arbitrum</component>
+        <component name="BTC Adapter" type="chain">Bitcoin via BTCPay</component>
+        <component name="SOL Adapter" type="chain">Solana via Phantom/Magic Eden</component>
+        <component name="Gas Station" type="infra">Dynamic gas price adjustment</component>
+        <component name="Approval Engine" type="security">Multi-sig transaction approval policies</component>
+      </components>
+      <outbound-connections>
+        <connection target="postgresql" protocol="jdbc" direction="two-way" data="bridge_custody DB"/>
+        <connection target="redis" protocol="redis" direction="two-way" data="Session cache"/>
+        <connection target="vault" protocol="http" direction="one-way" data="Key material, signing keys"/>
+        <connection target="blockchain-adapters" protocol="http" direction="one-way" data="Chain-specific tx building"/>
+      </outbound-connections>
+      <kafka-topics>
+        <topic name="custody.domain.events" direction="produce">Deposit/withdrawal confirmations, approval events</topic>
+      </kafka-topics>
+    </service>
+
+    <service id="blockchain-adapters" status="active">
+      <name>Blockchain Adapters</name>
+      <repo>bridge-blockchain-adapters</repo>
+      <tech>Kotlin, Spring Boot 3, Gradle multimodule</tech>
+      <role>Multi-chain library: adapter-core, adapter-evm, adapter-cosmos, adapter-chainlink</role>
+    </service>
+
+    <service id="p2p-chat" status="scaffold">
+      <name>P2P Chat</name>
+      <repo>bridge-p2p-chat</repo>
+      <tech>Kotlin, Corda 5.2, CPK/CPB</tech>
+      <role>Experimental P2P messaging via Corda network</role>
+    </service>
+  </tier>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- TIER 5: CONNECTORS                                                 -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <tier name="connectors" order="5">
+
+    <service id="bank-simulator" status="active">
+      <name>Bank Simulator</name>
+      <repo>bridge-bank-simulator</repo>
+      <tech>Kotlin, Spring Boot 3, PostgreSQL, Flyway</tech>
+      <port app="8090"/>
+      <role>Simulates banking: IBFT, RAAST, wire transfers, ISO 20022 messages, settlement webhooks</role>
+      <outbound-connections>
+        <connection target="orchestra" protocol="http" direction="two-way" data="Settlement webhook callbacks"/>
+        <connection target="iso-commons" protocol="library" direction="one-way" data="ISO 20022 message models"/>
+      </outbound-connections>
+    </service>
+
+    <service id="connector-onelink" status="scaffold">
+      <name>OneLink Connector</name>
+      <repo>bridge-connector-onelink</repo>
+      <role>RAAST/IBFT payment rail integration for Pakistan domestic payments</role>
+    </service>
+
+    <service id="connector-prism" status="scaffold">
+      <name>Prism Connector</name>
+      <repo>bridge-connector-prism</repo>
+      <role>Hyperledger Prism DID/verifiable credentials</role>
+    </service>
+
+    <service id="exchange-connectors" status="scaffold">
+      <name>Exchange Connectors</name>
+      <repo>bridge-exchange-connectors</repo>
+      <role>CEX/DEX adapter hub: Binance, Kraken, Uniswap, DEX aggregators</role>
+    </service>
+  </tier>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- INFRASTRUCTURE                                                     -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <tier name="infrastructure">
+
+    <service id="kafka" status="active">
+      <name>Apache Kafka</name>
+      <tech>Kafka 7.6.1, KRaft mode (no ZooKeeper)</tech>
+      <port app="9092" k8s="9092"/>
+      <url internal="bridge-kafka.bridge-service-stack.svc.cluster.local:9092"
+           external="https://bridge-kafka-ui.service.d.bridgeintelligence.ltd"/>
+      <role>Central event bus. Topic naming: bridge.v1.&lt;domain&gt;.&lt;entity&gt;.&lt;action&gt;</role>
+      <auth type="SASL_PLAINTEXT" user="user1"/>
+      <config retention="72h" auto-create="true"/>
+    </service>
+
+    <service id="postgresql" status="active">
+      <name>PostgreSQL</name>
+      <tech>PostgreSQL 16/18</tech>
+      <port app="5432" k8s="5432"/>
+      <url internal="bridge-postgres.bridge-service-stack.svc.cluster.local:5432"/>
+      <role>Per-service databases: bridge_orchestra, bridge_custody, bridge_ledger, bridge_execution, bridge_id, licensing</role>
+      <databases>
+        <db name="bridge_orchestra" owner="orchestra"/>
+        <db name="bridge_custody" owner="custody"/>
+        <db name="bridge_ledger" owner="ledger"/>
+        <db name="bridge_execution" owner="execution"/>
+        <db name="bridge_id" owner="bridge-id"/>
+        <db name="licensing" owner="licensing"/>
+        <db name="bridge_metabase" owner="analytics"/>
+        <db name="bridge_supabase" owner="supabase"/>
+      </databases>
+    </service>
+
+    <service id="redis" status="active">
+      <name>Redis</name>
+      <tech>Redis 7/8</tech>
+      <port app="6379" k8s="6379"/>
+      <url internal="bridge-redis-master.bridge-service-stack.svc.cluster.local:6379"/>
+      <role>Shared cache: sessions (Gateway, Bridge-ID), rate limiting, price cache (MarketData, Portfolio), optional Streams</role>
+    </service>
+
+    <service id="vault" status="active">
+      <name>HashiCorp Vault</name>
+      <tech>Vault</tech>
+      <port app="8200" k8s="8200"/>
+      <url internal="https://vault.binari.digital:8200"
+           external="https://bridge-vault.service.d.bridgeintelligence.ltd"/>
+      <role>Central secrets: DB creds, JWT keys, API keys, Stripe keys, PII storage. Agent sidecar injection.</role>
+    </service>
+
+    <service id="neo4j" status="active">
+      <name>Neo4j</name>
+      <tech>Neo4j</tech>
+      <port app="7687" k8s="7687"/>
+      <url internal="bridge-neo4j.bridge-service-stack.svc.cluster.local:7687"
+           external="https://bridge-neo4j.service.d.bridgeintelligence.ltd"/>
+      <role>Graph DB: infrastructure mapping (Infra Mapper), compliance relationship graphs, NeoDash UI</role>
+    </service>
+  </tier>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- LIBRARIES + ANALYTICS                                              -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <tier name="libraries">
+
+    <service id="contracts" status="active">
+      <name>Bridge Contracts</name>
+      <repo>bridge-contracts</repo>
+      <tech>JSON Schema, OpenAPI 3.1, Solidity, Anchor</tech>
+      <role>Source of truth: event schemas, Kafka topic registry, REST API specs, shared enums, smart contracts</role>
+    </service>
+
+    <service id="iso-commons" status="active">
+      <name>ISO Commons</name>
+      <repo>bridge-iso-commons</repo>
+      <tech>Kotlin, Spring Boot 3, Jackson XML</tech>
+      <role>Shared ISO 20022/27001 library: message parsing, domain models, adapter interfaces</role>
+    </service>
+
+    <service id="sdk" status="scaffold">
+      <name>Bridge SDK</name>
+      <repo>bridge-sdk</repo>
+      <tech>Rust, Go, Node.js</tech>
+      <role>Multi-language client SDK for BRIDGE protocols</role>
+    </service>
+
+    <service id="infra-mapper" status="active">
+      <name>Infra Mapper</name>
+      <repo>bridge-infra-mapper</repo>
+      <tech>Go 1.25, Neo4j, K8s client-go</tech>
+      <port app="8090"/>
+      <role>Auto-discovers K8s resources, Kafka topics, databases → writes to Neo4j graph</role>
+      <outbound-connections>
+        <connection target="neo4j" protocol="http" direction="one-way" data="Infrastructure graph nodes/edges"/>
+      </outbound-connections>
+    </service>
+
+    <service id="ai-stack" status="scaffold">
+      <name>AI Stack</name>
+      <repo>bridge-ai-stack</repo>
+      <role>Future AI/ML: compliance scoring, fraud detection, intelligent routing</role>
+    </service>
+
+    <service id="analytics" status="scaffold">
+      <name>Analytics</name>
+      <repo>bridge-analytics</repo>
+      <tech>Metabase, Superset, ClickHouse</tech>
+      <url external="https://bridge-metabase.service.d.bridgeintelligence.ltd"/>
+      <role>BI dashboards with Metabase and Superset on ClickHouse data warehouse</role>
+    </service>
+  </tier>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- DATA PIPELINES (Kafka event flows)                                 -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <data-pipelines>
+    <pipeline name="Custody → Ledger Settlement">
+      <description>On-chain deposit confirmed → Ledger creates double-entry posting (debit external, credit user)</description>
+      <flow>
+        <step service="custody" action="Confirms on-chain deposit"/>
+        <step topic="custody.domain.events" type="kafka"/>
+        <step service="ledger" action="Consumes event, creates posting via inbox dedup"/>
+        <step topic="ledger.domain.events" type="kafka"/>
+      </flow>
+    </pipeline>
+
+    <pipeline name="Order Execution → Settlement">
+      <description>Order submitted → hold requested → executed at venue → fill posted to ledger</description>
+      <flow>
+        <step service="orchestra" action="Submits order via HTTP"/>
+        <step service="execution" action="Requests hold from Ledger"/>
+        <step service="ledger" action="Creates hold (ACTIVE)"/>
+        <step service="execution" action="Executes at venue, receives fill"/>
+        <step topic="bridge.v1.execution.order.filled" type="kafka"/>
+        <step service="ledger" action="Converts hold to posting, creates fee entry"/>
+      </flow>
+    </pipeline>
+
+    <pipeline name="Market Data Distribution">
+      <description>MarketData publishes prices → Portfolio caches → Wallet displays</description>
+      <flow>
+        <step service="marketdata" action="Polls venues, calculates mark/VWAP"/>
+        <step topic="bridge.v1.market.price.mark" type="kafka"/>
+        <step service="portfolio" action="Consumes prices → Redis cache"/>
+        <step service="wallet" action="Queries portfolio API for valuations"/>
+      </flow>
+    </pipeline>
+
+    <pipeline name="User Onboarding">
+      <description>Wallet → Bridge-ID auth → Orchestra compliance → KYC verification</description>
+      <flow>
+        <step service="wallet" action="User clicks login/register"/>
+        <step service="bridge-id" action="OIDC auth code + PKCE flow"/>
+        <step service="orchestra" action="Starts onboarding workflow"/>
+        <step service="orchestra" action="Compliance check (Sumsub/Onfido)"/>
+        <step topic="bridge.v1.identity.*" type="kafka"/>
+      </flow>
+    </pipeline>
+
+    <pipeline name="Fiat PKR Transfer">
+      <description>Wallet → Orchestra → Bank Simulator (IBFT/RAAST) → Settlement webhook</description>
+      <flow>
+        <step service="wallet" action="User initiates PKR transfer"/>
+        <step service="orchestra" action="Creates transfer workflow"/>
+        <step service="bank-simulator" action="Processes IBFT/RAAST transfer"/>
+        <step service="orchestra" action="Receives settlement webhook"/>
+        <step service="ledger" action="Creates settlement posting"/>
+      </flow>
+    </pipeline>
+  </data-pipelines>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- DEPLOYMENT INFO                                                    -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <deployment>
+    <k8s namespace="bridge-service-stack"/>
+    <registry host="harbor.binari.digital"/>
+    <gitops tool="ArgoCD" auto-sync="true"/>
+    <ci tool="GitHub Actions" pattern="Vault JWT → Harbor push → Kustomize tag → ArgoCD sync"/>
+    <domain pattern="*.service.d.bridgeintelligence.ltd"/>
+    <vault address="https://vault.binari.digital:8200" auth="JWT + AppRole"/>
+  </deployment>
+
+</bridge-ecosystem>
