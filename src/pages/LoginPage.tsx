@@ -1,11 +1,13 @@
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Layers, ArrowLeft } from 'lucide-react';
+import { Layers, ArrowLeft, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { signInWithGoogle, loading } = useAuth();
+  const error = searchParams.get('error');
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center px-6">
@@ -34,6 +36,17 @@ export default function LoginPage() {
             <p className="text-xs text-zinc-500">Architecture Intelligence</p>
           </div>
         </div>
+
+        {/* Error message */}
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 p-3 flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs text-red-400 font-medium">Sign-in failed</p>
+              <p className="text-[10px] text-red-400/70 mt-0.5">{error.replace(/_/g, ' ')}</p>
+            </div>
+          </div>
+        )}
 
         {/* Card */}
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">

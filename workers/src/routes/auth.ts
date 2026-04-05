@@ -42,8 +42,9 @@ auth.get('/google/callback', async (c) => {
 
   if (!tokenRes.ok) {
     const err = await tokenRes.text();
-    console.error('Google token exchange failed:', err);
-    return c.redirect(`${c.env.APP_URL}/login?error=google_auth_failed`);
+    console.error('Google token exchange failed:', tokenRes.status, err);
+    const errorDetail = encodeURIComponent(`token_exchange_${tokenRes.status}`);
+    return c.redirect(`${c.env.APP_URL}/login?error=${errorDetail}`);
   }
 
   const tokens: GoogleTokenResponse = await tokenRes.json();
