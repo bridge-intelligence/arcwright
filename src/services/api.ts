@@ -1,4 +1,5 @@
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+const API_BASE = import.meta.env.VITE_API_URL ||
+  (window.location.hostname === 'localhost' ? 'http://localhost:8787/api' : 'https://arcwright-api.hamza-dastagir.workers.dev/api');
 const TOKEN_KEY = 'arcwright_token';
 
 function getToken(): string | null {
