@@ -168,14 +168,16 @@ repos.post('/connect', async (c) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'analyzing')`
   ).bind(repoId, user.tenant_id, body.project_id || null, user.sub, ghRepo.id, ghRepo.full_name, ghRepo.name, ghRepo.default_branch, webhookId, webhookSecret).run();
 
-  // Trigger analysis in background (non-blocking via waitUntil)
-  const analysisPromise = triggerAnalysis(c.env, repoId, user.tenant_id, ghRepo.full_name, ghRepo.default_branch, dbUser.github_token as string);
-  c.executionCtx.waitUntil(analysisPromise);
+  // Trigger analysis inline (8b model is fast enough)
+  c.executionCtx.waitUntil(
+    triggerAnalysis(c.env, repoId, user.tenant_id, ghRepo.full_name, ghRepo.default_branch, dbUser.github_token as string)
+      .catch(err => console.error('Background analysis failed:', err))
+  );
 
   return c.json({ id: repoId, status: 'analyzing' }, 201);
 });
 
-// Retry analysis for a failed repo
+// Retry analysis for a failed repo (runs INLINE to surface errors)
 repos.post('/:id/retry', async (c) => {
   const user = c.get('user');
   const repoId = c.req.param('id');
@@ -194,10 +196,13 @@ repos.post('/:id/retry', async (c) => {
     `UPDATE repos SET status = 'analyzing', updated_at = datetime('now') WHERE id = ?`
   ).bind(repoId).run();
 
-  const analysisPromise = triggerAnalysis(c.env, repoId, user.tenant_id, repo.full_name as string, repo.default_branch as string, dbUser.github_token as string);
-  c.executionCtx.waitUntil(analysisPromise);
-
-  return c.json({ ok: true, status: 'analyzing' });
+  // Run inline (not waitUntil) so errors propagate
+  try {
+    await triggerAnalysis(c.env, repoId, user.tenant_id, repo.full_name as string, repo.default_branch as string, dbUser.github_token as string);
+    return c.json({ ok: true, status: 'ready' });
+  } catch (err) {
+    return c.json({ ok: false, error: String(err) }, 500);
+  }
 });
 
 // Get single repo with latest analysis
@@ -344,8 +349,8 @@ async function runAnalysis(env: Env, analysisId: string, repoId: string, tenantI
     depth: f.path.split('/').length,
   })).sort((a, b) => a.priority - b.priority || a.depth - b.depth);
 
-  // 3. Fetch content of key files (max 15 to stay well under 50 subrequest limit)
-  const filesToAnalyze = scored.slice(0, 15);
+  // 3. Fetch content of key files (max 5 — keep fast and under limits)
+  const filesToAnalyze = scored.slice(0, 5);
   const fileContents: Array<{ path: string; content: string }> = [];
 
   for (const file of filesToAnalyze) {
@@ -373,7 +378,7 @@ async function runAnalysis(env: Env, analysisId: string, repoId: string, tenantI
   const fileTree = tree.tree
     .filter(f => f.type === 'blob')
     .map(f => f.path)
-    .slice(0, 200) // Cap tree size
+    .slice(0, 100) // Cap tree size for prompt speed
     .join('\n');
 
   const fileSummaries = fileContents
@@ -399,10 +404,10 @@ Output this XML (no markdown, only XML):
 <issues><issue type="dangling_code|circular_dependency|missing_docs|dead_import" severity="info|warning|error" title="">...</issue></issues>
 </architecture>`;
 
-  // 5. Call Workers AI (use 8b model for speed — stays within CPU limits)
+  // 5. Call Workers AI (fp8 quantized for speed)
   let xmlContent: string;
   try {
-    const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+    const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
       messages: [
         { role: 'system', content: 'You are a software architect. Output ONLY valid XML. No markdown fences, no explanation.' },
         { role: 'user', content: prompt },
