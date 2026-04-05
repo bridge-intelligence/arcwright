@@ -369,65 +369,54 @@ async function runAnalysis(env: Env, analysisId: string, repoId: string, tenantI
     }
   }
 
-  // 4. Build analysis prompt
+  // 4. Build analysis prompt (keep it concise for speed)
   const fileTree = tree.tree
     .filter(f => f.type === 'blob')
     .map(f => f.path)
+    .slice(0, 200) // Cap tree size
     .join('\n');
 
   const fileSummaries = fileContents
-    .map(f => `--- ${f.path} ---\n${f.content}`)
+    .map(f => `--- ${f.path} ---\n${f.content.slice(0, 2000)}`)
     .join('\n\n');
 
-  const prompt = `You are an expert software architect. Analyze this repository and generate a comprehensive architecture document in XML format.
+  const prompt = `Analyze this repo and output XML architecture doc.
 
-Repository: ${fullName} (branch: ${branch})
+Repo: ${fullName} (branch: ${branch})
 
-FILE TREE:
+FILES:
 ${fileTree}
 
-KEY FILE CONTENTS:
+KEY CONTENTS:
 ${fileSummaries}
 
-Generate XML with this structure:
-<architecture repo="${fullName}" branch="${branch}" analyzed_at="ISO_DATE">
-  <summary>Brief description of the project</summary>
-  <tech_stack>
-    <technology name="" category="language|framework|database|messaging|tool" />
-  </tech_stack>
-  <services>
-    <service id="" name="" type="api|worker|frontend|library|database" tier="frontend|gateway|business|infrastructure">
-      <description>What this service does</description>
-      <endpoints>
-        <endpoint method="GET|POST|..." path="/..." description="..." />
-      </endpoints>
-      <dependencies>
-        <dependency service_id="" protocol="http|kafka|grpc|database" description="..." />
-      </dependencies>
-    </service>
-  </services>
-  <connections>
-    <connection from="" to="" protocol="" direction="one-way|two-way" description="..." />
-  </connections>
-  <issues>
-    <issue type="dangling_code|circular_dependency|missing_docs|dead_import|orphan_service|security_concern" severity="info|warning|error" title="" file_path="" line="">
-      Description of the issue
-    </issue>
-  </issues>
-</architecture>
+Output this XML (no markdown, only XML):
+<architecture repo="${fullName}" branch="${branch}" analyzed_at="${new Date().toISOString()}">
+<summary>...</summary>
+<tech_stack><technology name="" category="language|framework|database|tool" /></tech_stack>
+<services><service id="" name="" type="api|worker|frontend|library" tier="frontend|gateway|business|infrastructure"><description>...</description></service></services>
+<connections><connection from="" to="" protocol="" direction="one-way|two-way" description="" /></connections>
+<issues><issue type="dangling_code|circular_dependency|missing_docs|dead_import" severity="info|warning|error" title="">...</issue></issues>
+</architecture>`;
 
-Be thorough. Identify ALL services, their connections, and any architectural issues like dangling code, circular dependencies, orphaned files, missing documentation, or security concerns.`;
-
-  // 5. Call Workers AI
-  const aiResponse = await env.AI.run('@cf/meta/llama-3.1-70b-instruct', {
-    messages: [
-      { role: 'system', content: 'You are an expert software architect. Output only valid XML, no markdown fences.' },
-      { role: 'user', content: prompt },
-    ],
-    max_tokens: 4096,
-  });
-
-  const xmlContent = (aiResponse as { response?: string }).response || '<architecture><error>No response from AI</error></architecture>';
+  // 5. Call Workers AI (use 8b model for speed — stays within CPU limits)
+  let xmlContent: string;
+  try {
+    const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: [
+        { role: 'system', content: 'You are a software architect. Output ONLY valid XML. No markdown fences, no explanation.' },
+        { role: 'user', content: prompt },
+      ],
+      max_tokens: 2048,
+    });
+    xmlContent = (aiResponse as { response?: string }).response || '';
+    if (!xmlContent || xmlContent.length < 50) {
+      xmlContent = `<architecture repo="${fullName}" branch="${branch}" analyzed_at="${new Date().toISOString()}"><summary>Analysis produced minimal output — retry recommended</summary><tech_stack /><services /><connections /><issues /></architecture>`;
+    }
+  } catch (aiErr) {
+    console.error('AI call failed:', aiErr);
+    xmlContent = `<architecture repo="${fullName}" branch="${branch}" analyzed_at="${new Date().toISOString()}"><summary>AI analysis failed: ${String(aiErr).slice(0, 100)}</summary><tech_stack /><services /><connections /><issues /></architecture>`;
+  }
 
   // 6. Parse issue counts from XML
   const servicesMatch = xmlContent.match(/<service /g);
