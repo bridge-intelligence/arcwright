@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { authApi, clearToken } from '../services/api';
 
 export interface User {
   id: string;
@@ -6,7 +7,9 @@ export interface User {
   displayName: string | null;
   photoURL: string | null;
   githubConnected: boolean;
+  githubUsername: string | null;
   tenantId: string;
+  role: string;
 }
 
 interface AuthState {
@@ -14,7 +17,8 @@ interface AuthState {
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
-  connectGitHub: () => Promise<void>;
+  connectGitHub: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -40,40 +44,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user]);
 
-  const signInWithGoogle = useCallback(async () => {
-    setLoading(true);
+  const refreshUser = useCallback(async () => {
     try {
-      // TODO: Replace with real Google OAuth flow
-      // For now, simulate a successful sign-in for development
-      await new Promise(resolve => setTimeout(resolve, 800));
-
-      const mockUser: User = {
-        id: crypto.randomUUID(),
-        email: 'dev@arcwright.dev',
-        displayName: 'Dev User',
-        photoURL: null,
-        githubConnected: false,
-        tenantId: crypto.randomUUID(),
+      const me = await authApi.getMe();
+      const updated: User = {
+        id: me.id,
+        email: me.email,
+        displayName: me.display_name,
+        photoURL: me.photo_url,
+        githubConnected: !!me.github_username,
+        githubUsername: me.github_username,
+        tenantId: me.tenant_id,
+        role: me.role,
       };
-      setUser(mockUser);
-    } finally {
-      setLoading(false);
+      setUser(updated);
+    } catch {
+      // Token invalid, clear state
+      setUser(null);
+      clearToken();
     }
   }, []);
 
+  // On mount, verify token is still valid
+  useEffect(() => {
+    const token = localStorage.getItem('arcwright_token');
+    if (token && user) {
+      refreshUser();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const signInWithGoogle = useCallback(async () => {
+    setLoading(true);
+    // Redirect to Google OAuth via our Workers API
+    window.location.href = authApi.getGoogleAuthUrl();
+  }, []);
+
   const signOut = useCallback(async () => {
+    clearToken();
     setUser(null);
   }, []);
 
-  const connectGitHub = useCallback(async () => {
-    if (!user) return;
-    // TODO: Replace with real GitHub OAuth flow
-    await new Promise(resolve => setTimeout(resolve, 500));
-    setUser(prev => prev ? { ...prev, githubConnected: true } : null);
-  }, [user]);
+  const connectGitHub = useCallback(() => {
+    // Redirect to GitHub OAuth via our Workers API
+    window.location.href = authApi.getGitHubAuthUrl();
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signOut, connectGitHub }}>
+    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signOut, connectGitHub, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

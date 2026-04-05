@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { Node, Edge } from '@xyflow/react';
 import { MarkerType } from '@xyflow/react';
-import { ecosystemData, categoryColors, protocolColors, tierOrder } from '../data/ecosystem';
+import { ecosystemData, protocolColors } from '../data/ecosystem';
 import type { ServiceCategory, CommProtocol, ServiceTier } from '../data/ecosystem';
 import type { ServiceNodeData } from '../components/ServiceNode';
 
@@ -20,7 +20,6 @@ const TIER_Y: Record<ServiceTier, number> = {
 // Place services within tiers, spreading horizontally
 function computePositions(hiddenTiers: Set<ServiceTier>) {
   const positions: Record<string, { x: number; y: number }> = {};
-  const tierCounts: Record<string, number> = {};
 
   // Group services by tier
   const byTier: Record<string, string[]> = {};

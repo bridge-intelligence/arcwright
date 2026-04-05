@@ -1,0 +1,21 @@
+{
+  "name": "arcwright-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 execute arcwright-db --local --file=src/db/schema.sql",
+    "db:migrate:remote": "wrangler d1 execute arcwright-db --remote --file=src/db/schema.sql"
+  },
+  "dependencies": {
+    "hono": "^4.7.0",
+    "jose": "^6.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250115.0",
+    "wrangler": "^4.0.0",
+    "typescript": "~5.7.0"
+  }
+}

@@ -18,6 +18,7 @@ const categoryIcons: Record<ServiceCategory, React.ReactNode> = {
   connector: <Zap size={16} />,
   library: <BookOpen size={16} />,
   analytics: <Database size={16} />,
+  dlt: <Link size={16} />,
 };
 
 const statusLabels: Record<ServiceStatus, string> = {

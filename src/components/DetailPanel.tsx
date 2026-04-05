@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import type { EcosystemService } from '../data/ecosystem';
-import { categoryColors, statusColors, protocolColors } from '../data/ecosystem';
+import { categoryColors, statusColors } from '../data/ecosystem';
 
 interface DetailPanelProps {
   service: EcosystemService | null;

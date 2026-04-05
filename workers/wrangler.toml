@@ -1,0 +1,39 @@
+name = "arcwright-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "development"
+APP_URL = "http://localhost:5200"
+
+# Google OAuth
+# GOOGLE_CLIENT_ID = "" # Set via wrangler secret
+# GOOGLE_CLIENT_SECRET = "" # Set via wrangler secret
+
+# GitHub OAuth
+# GITHUB_CLIENT_ID = "" # Set via wrangler secret
+# GITHUB_CLIENT_SECRET = "" # Set via wrangler secret
+
+# JWT signing
+# JWT_SECRET = "" # Set via wrangler secret
+
+[[d1_databases]]
+binding = "DB"
+database_name = "arcwright-db"
+database_id = "local"
+
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "arcwright-storage"
+
+[ai]
+binding = "AI"
+
+# --- Environment overrides ---
+
+[env.production]
+vars = { ENVIRONMENT = "production", APP_URL = "https://arcwright.pages.dev" }
+
+[env.staging]
+vars = { ENVIRONMENT = "staging", APP_URL = "https://staging.arcwright.pages.dev" }
