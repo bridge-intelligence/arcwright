@@ -5,7 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 ENVIRONMENT = "development"
-APP_URL = "http://localhost:5200"
+APP_URL = "https://arcwright.pages.dev"
 
 # Secrets (set via `wrangler secret put`):
 # GOOGLE_CLIENT_ID
