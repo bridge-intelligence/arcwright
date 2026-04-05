@@ -17,7 +17,7 @@ APP_URL = "http://localhost:5200"
 [[d1_databases]]
 binding = "DB"
 database_name = "arcwright-db"
-database_id = "placeholder-update-after-create"
+database_id = "414d2eba-2552-49e0-860f-e492c69e2fff"
 
 [ai]
 binding = "AI"
@@ -30,7 +30,7 @@ vars = { ENVIRONMENT = "production", APP_URL = "https://arcwright.pages.dev" }
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "arcwright-db"
-database_id = "placeholder-update-after-create"
+database_id = "414d2eba-2552-49e0-860f-e492c69e2fff"
 
 [env.production.ai]
 binding = "AI"
