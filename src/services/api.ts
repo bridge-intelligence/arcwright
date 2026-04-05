@@ -44,7 +44,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 // --- Auth ---
 export const authApi = {
   getGoogleAuthUrl: () => `${API_BASE}/auth/google`,
-  getGitHubAuthUrl: () => `${API_BASE}/auth/github`,
+  getGitHubAuthUrl: () => {
+    const token = getToken();
+    return `${API_BASE}/auth/github${token ? `?token=${token}` : ''}`;
+  },
   getMe: () => request<{
     id: string;
     tenant_id: string;

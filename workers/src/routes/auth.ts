@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env, GoogleTokenResponse, GoogleUserInfo } from '../types';
-import { createToken, authMiddleware } from '../middleware/auth';
+import { createToken, verifyToken, authMiddleware } from '../middleware/auth';
 
 const auth = new Hono<{ Bindings: Env }>();
 
@@ -95,13 +95,23 @@ auth.get('/google/callback', async (c) => {
   return c.redirect(`${c.env.APP_URL}/auth/callback?token=${jwt}`);
 });
 
-// GitHub OAuth: redirect to GitHub consent
-auth.get('/github', authMiddleware, async (c) => {
-  const user = c.get('user');
+// GitHub OAuth: redirect to GitHub consent (browser redirect, no auth header)
+auth.get('/github', async (c) => {
+  const token = c.req.query('token');
+  if (!token) return c.json({ error: 'Missing token. Use /api/auth/github?token=YOUR_JWT' }, 400);
+
+  // Verify the JWT to get user ID
+  let userId: string;
+  try {
+    const payload = await verifyToken(token, c.env.JWT_SECRET);
+    userId = payload.sub;
+  } catch {
+    return c.json({ error: 'Invalid token' }, 401);
+  }
 
   const workerOrigin = new URL(c.req.url).origin;
   const redirectUri = `${workerOrigin}/api/auth/github/callback`;
-  const state = btoa(JSON.stringify({ userId: user.sub }));
+  const state = btoa(JSON.stringify({ userId }));
   const params = new URLSearchParams({
     client_id: c.env.GITHUB_CLIENT_ID,
     redirect_uri: redirectUri,
