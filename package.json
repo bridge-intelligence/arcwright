@@ -1,5 +1,5 @@
 {
-  "name": "bridge-architecture-ui",
+  "name": "arcwright",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,9 +12,11 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",
     "@xyflow/react": "^12.10.1",
+    "framer-motion": "^12.38.0",
     "lucide-react": "^0.577.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-router-dom": "^7.14.0",
     "tailwindcss": "^4.2.1"
   },
   "devDependencies": {
