@@ -202,7 +202,7 @@ export default function DashboardPage() {
               {visibleRepos.map((repo, i) => (
                 <motion.div key={repo.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.02 * i }}
                   className="group rounded-lg border border-zinc-800 bg-zinc-900/30 p-3.5 hover:border-zinc-700 transition-all cursor-pointer"
-                  onClick={() => repo.status === 'ready' && navigate(`/repo/${repo.id}`)}>
+                  onClick={() => navigate(`/repo/${repo.id}`)}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5 min-w-0">
                       <Github className="w-4 h-4 text-zinc-500 flex-shrink-0" />
