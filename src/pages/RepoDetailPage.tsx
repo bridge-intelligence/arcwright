@@ -23,6 +23,7 @@ import {
   Link2,
   ExternalLink,
   GitBranch,
+  Workflow,
   X,
   Database,
 } from 'lucide-react';
@@ -40,17 +41,26 @@ interface ParsedConnection {
 interface ParsedIssue {
   type: string; severity: string; title: string; description: string; filePath?: string;
 }
+interface ParsedFlow {
+  id: string; name: string;
+  steps: Array<{ order: number; service: string; action: string }>;
+}
 interface ParsedArch {
   summary: string;
+  branch: string;
   techStack: Array<{ name: string; category: string }>;
   services: ParsedService[];
   connections: ParsedConnection[];
+  flows: ParsedFlow[];
   issues: ParsedIssue[];
 }
 
 // --- XML Parser ---
 function parseArchXml(xml: string): ParsedArch {
-  const result: ParsedArch = { summary: '', techStack: [], services: [], connections: [], issues: [] };
+  const result: ParsedArch = { summary: '', branch: '', techStack: [], services: [], connections: [], flows: [], issues: [] };
+
+  const branchMatch = xml.match(/branch="([^"]*?)"/);
+  if (branchMatch) result.branch = branchMatch[1];
 
   const summaryMatch = xml.match(/<summary>([\s\S]*?)<\/summary>/);
   if (summaryMatch) result.summary = summaryMatch[1].trim();
@@ -80,6 +90,15 @@ function parseArchXml(xml: string): ParsedArch {
   const issueRegex = /<issue\s+type="([^"]*?)"\s+severity="([^"]*?)"\s+title="([^"]*?)"(?:\s+file_path="([^"]*?)")?[^>]*>([\s\S]*?)<\/issue>/g;
   while ((m = issueRegex.exec(xml)) !== null) result.issues.push({ type: m[1], severity: m[2], title: m[3], description: m[5]?.trim() || '', filePath: m[4] });
 
+  const flowRegex = /<flow\s+id="([^"]*?)"\s+name="([^"]*?)"[^>]*>([\s\S]*?)<\/flow>/g;
+  while ((m = flowRegex.exec(xml)) !== null) {
+    const steps: ParsedFlow['steps'] = [];
+    const stepRegex = /<step\s+order="([^"]*?)"\s+service="([^"]*?)"\s+action="([^"]*?)"\s*\/?\s*>/g;
+    let s;
+    while ((s = stepRegex.exec(m[3])) !== null) steps.push({ order: parseInt(s[1]), service: s[2], action: s[3] });
+    result.flows.push({ id: m[1], name: m[2], steps: steps.sort((a, b) => a.order - b.order) });
+  }
+
   return result;
 }
 
@@ -100,7 +119,7 @@ export default function RepoDetailPage() {
   const [xml, setXml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
-  const [activeTab, setActiveTab] = useState<'graph' | 'issues' | 'xml'>('graph');
+  const [activeTab, setActiveTab] = useState<'graph' | 'flows' | 'issues' | 'xml'>('graph');
   const [selectedService, setSelectedService] = useState<ParsedService | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -233,7 +252,8 @@ export default function RepoDetailPage() {
               <span className="flex items-center gap-1 text-[11px] text-zinc-400"><Server className="w-3 h-3" /> {parsed.services.length} services</span>
               <span className="flex items-center gap-1 text-[11px] text-zinc-400"><Link2 className="w-3 h-3" /> {parsed.connections.length} connections</span>
               <span className="flex items-center gap-1 text-[11px] text-zinc-400"><AlertCircle className="w-3 h-3" /> {parsed.issues.length} issues</span>
-              <span className="flex items-center gap-1 text-[11px] text-zinc-400"><GitBranch className="w-3 h-3" /> arcwright branch</span>
+              {parsed.branch && <span className="flex items-center gap-1 text-[11px] text-zinc-400"><GitBranch className="w-3 h-3" /> analyzed: {parsed.branch}</span>}
+              {parsed.flows.length > 0 && <span className="flex items-center gap-1 text-[11px] text-zinc-400"><Workflow className="w-3 h-3" /> {parsed.flows.length} flows</span>}
               <div className="flex flex-wrap gap-1 ml-auto">
                 {parsed.techStack.slice(0, 10).map(t => (
                   <span key={t.name} className="px-1.5 py-0.5 rounded-full bg-zinc-800 text-[9px] text-zinc-400 border border-zinc-700/50">{t.name}</span>
@@ -247,7 +267,7 @@ export default function RepoDetailPage() {
       {/* Tabs */}
       <div className="border-b border-zinc-800/50">
         <div className="max-w-7xl mx-auto px-6 flex">
-          {([['graph', 'Architecture', Server], ['issues', 'Issues', AlertCircle], ['xml', 'Raw XML', FileCode2]] as const).map(([key, label, Icon]) => (
+          {([['graph', 'Architecture', Server], ['flows', 'User Flows', Workflow], ['issues', 'Issues', AlertCircle], ['xml', 'Raw XML', FileCode2]] as const).map(([key, label, Icon]) => (
             <button key={key} onClick={() => setActiveTab(key)} className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 ${
               activeTab === key ? 'border-blue-500 text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}>
               <Icon className="w-3.5 h-3.5" /> {label}
@@ -341,6 +361,38 @@ export default function RepoDetailPage() {
                     ) : null;
                   })()}
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'flows' && parsed && (
+          <div className="max-w-4xl mx-auto px-6 py-6">
+            {parsed.flows.length === 0 ? <div className="text-center py-12 text-sm text-zinc-500">No user flows detected.</div> : (
+              <div className="space-y-6">
+                {parsed.flows.map(flow => (
+                  <div key={flow.id} className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
+                    <div className="px-5 py-3 border-b border-zinc-800 bg-zinc-800/30">
+                      <h3 className="text-sm font-semibold">{flow.name}</h3>
+                    </div>
+                    <div className="p-5">
+                      <div className="relative">
+                        {flow.steps.map((step, i) => (
+                          <div key={i} className="flex items-start gap-4 mb-4 last:mb-0">
+                            <div className="flex flex-col items-center">
+                              <div className="w-7 h-7 rounded-full bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-[10px] font-bold text-blue-400 flex-shrink-0">{step.order}</div>
+                              {i < flow.steps.length - 1 && <div className="w-px h-6 bg-zinc-700 mt-1" />}
+                            </div>
+                            <div className="pt-1">
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-zinc-800 text-zinc-400 mr-2">{step.service}</span>
+                              <span className="text-xs text-zinc-300">{step.action}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
