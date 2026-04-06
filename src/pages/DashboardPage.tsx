@@ -106,7 +106,7 @@ export default function DashboardPage() {
           </div>
           <div className="flex items-center gap-3">
             <button onClick={() => navigate('/explore')} className="text-xs text-zinc-400 hover:text-white px-3 py-1.5">Explorer</button>
-            <button className="text-xs text-zinc-400 hover:text-white px-3 py-1.5"><Settings className="w-3.5 h-3.5" /></button>
+            <button onClick={() => navigate('/settings')} className="text-xs text-zinc-400 hover:text-white px-3 py-1.5"><Settings className="w-3.5 h-3.5" /></button>
             <div className="flex items-center gap-2 pl-3 border-l border-zinc-800">
               {user?.photoURL ? <img src={user.photoURL} alt="" className="w-6 h-6 rounded-full" /> :
                 <div className="w-6 h-6 rounded-full bg-zinc-700 flex items-center justify-center text-[10px] text-zinc-400">{user?.displayName?.[0] || '?'}</div>}

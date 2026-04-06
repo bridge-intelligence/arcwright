@@ -6,6 +6,7 @@ import DashboardPage from './pages/DashboardPage';
 import ExplorePage from './pages/ExplorePage';
 import RepoDetailPage from './pages/RepoDetailPage';
 import ProjectViewPage from './pages/ProjectViewPage';
+import SettingsPage from './pages/SettingsPage';
 import AuthCallbackPage from './pages/AuthCallbackPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -25,6 +26,7 @@ function AppRoutes() {
       <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
       <Route path="/repo/:id" element={<ProtectedRoute><RepoDetailPage /></ProtectedRoute>} />
       <Route path="/project/:id" element={<ProtectedRoute><ProjectViewPage /></ProtectedRoute>} />
+      <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
       <Route path="/explore" element={<ExplorePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

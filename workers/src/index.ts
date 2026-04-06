@@ -4,6 +4,7 @@ import type { Env } from './types';
 import auth from './routes/auth';
 import projects from './routes/projects';
 import repos from './routes/repos';
+import settings from './routes/settings';
 import webhooks from './routes/webhooks';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -27,6 +28,7 @@ app.get('/api/health', (c) => c.json({ status: 'ok', environment: c.env.ENVIRONM
 app.route('/api/auth', auth);
 app.route('/api/projects', projects);
 app.route('/api/repos', repos);
+app.route('/api/settings', settings);
 app.route('/api/webhooks', webhooks);
 
 // 404 fallback for API routes

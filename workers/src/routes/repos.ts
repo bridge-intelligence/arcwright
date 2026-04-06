@@ -198,6 +198,13 @@ repos.post('/:id/analyze', async (c) => {
     return c.json({ error: 'Anthropic API key not configured. Set ANTHROPIC_API_KEY via wrangler secret.' }, 400);
   }
 
+  // Guardrails: check quota
+  const { checkAnalysisQuota, recordUsage } = await import('../middleware/guardrails');
+  const quota = await checkAnalysisQuota(c.env.DB, user.tenant_id, source);
+  if (!quota.allowed) {
+    return c.json({ error: quota.reason, usage: quota.usage }, 403);
+  }
+
   const dbUser = await c.env.DB.prepare('SELECT github_token FROM users WHERE id = ?').bind(user.sub).first();
   if (!dbUser?.github_token) return c.json({ error: 'GitHub not connected' }, 400);
 
@@ -225,6 +232,9 @@ repos.post('/:id/analyze', async (c) => {
         `UPDATE repos SET status = 'ready', last_analyzed_at = datetime('now') WHERE id = ?`
       ).bind(repoId).run();
 
+      // Record usage
+      await recordUsage(c.env.DB, user.tenant_id, user.sub, 'claude_api', repoId, result.model, result.inputTokens, result.outputTokens, result.cost);
+
       return c.json({
         ok: true, status: 'ready', source: 'claude-api',
         services: servicesCount, issues: issuesCount,
@@ -233,6 +243,8 @@ repos.post('/:id/analyze', async (c) => {
     } else {
       // Cloudflare AI (default)
       await triggerAnalysis(c.env, repoId, user.tenant_id, repo.full_name as string, branch, dbUser.github_token as string);
+      // Record CF AI usage (free)
+      await recordUsage(c.env.DB, user.tenant_id, user.sub, 'cf_ai', repoId, 'llama-3.1-8b-fp8', 0, 0, 0);
       return c.json({ ok: true, status: 'ready', source: 'cloudflare-ai' });
     }
   } catch (err) {
