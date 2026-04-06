@@ -95,6 +95,10 @@ export interface RepoDetail extends Omit<RepoResponse, 'issues'> {
     commit_sha: string | null;
     branch: string | null;
     completed_at: string | null;
+    model: string | null;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    cost_usd: number | null;
   } | null;
   issues: Array<{
     id: string;
@@ -123,6 +127,14 @@ export const reposApi = {
     return res.text();
   },
   retry: (id: string) => request<{ ok: boolean }>(`/repos/${id}/retry`, { method: 'POST' }),
+  analyze: (id: string, source?: string, branch?: string) => request<{
+    ok: boolean; status: string; source: string;
+    services?: number; issues?: number;
+    cost?: { input_tokens: number; output_tokens: number; cost_usd: number; model: string };
+  }>(`/repos/${id}/analyze`, {
+    method: 'POST',
+    body: JSON.stringify({ source, branch }),
+  }),
   toggleAutoSync: (id: string, enabled: boolean) => request<{ ok: boolean }>(`/repos/${id}/auto-sync`, {
     method: 'PATCH',
     body: JSON.stringify({ enabled }),

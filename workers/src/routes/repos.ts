@@ -179,7 +179,69 @@ repos.post('/connect', async (c) => {
   }
 });
 
-// Retry analysis for a failed repo (runs INLINE to surface errors)
+// Analyze repo — supports source selection and branch override
+repos.post('/:id/analyze', async (c) => {
+  const user = c.get('user');
+  const repoId = c.req.param('id');
+  const body = await c.req.json<{ source?: string; branch?: string }>().catch(() => ({}));
+  const source = body.source || 'cloudflare-ai';
+  const branchOverride = body.branch;
+
+  const repo = await c.env.DB.prepare(
+    'SELECT * FROM repos WHERE id = ? AND tenant_id = ?'
+  ).bind(repoId, user.tenant_id).first();
+
+  if (!repo) return c.json({ error: 'Not found' }, 404);
+
+  // Check if Claude API is available
+  if (source === 'claude-api' && !c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'Anthropic API key not configured. Set ANTHROPIC_API_KEY via wrangler secret.' }, 400);
+  }
+
+  const dbUser = await c.env.DB.prepare('SELECT github_token FROM users WHERE id = ?').bind(user.sub).first();
+  if (!dbUser?.github_token) return c.json({ error: 'GitHub not connected' }, 400);
+
+  const branch = branchOverride || repo.default_branch as string;
+
+  await c.env.DB.prepare(
+    `UPDATE repos SET status = 'analyzing', updated_at = datetime('now') WHERE id = ?`
+  ).bind(repoId).run();
+
+  try {
+    if (source === 'claude-api') {
+      const { analyzeWithClaude } = await import('../services/claude-analyzer');
+      const result = await analyzeWithClaude(c.env, repo.full_name as string, branch, dbUser.github_token as string);
+
+      const analysisId = crypto.randomUUID();
+      const servicesCount = (result.xml.match(/<service /g) || []).length;
+      const issuesCount = (result.xml.match(/<issue /g) || []).length;
+
+      await c.env.DB.prepare(
+        `INSERT INTO analyses (id, repo_id, tenant_id, branch, commit_sha, source, model, input_tokens, output_tokens, cost_usd, xml_content, services_count, issues_count, summary, status, started_at, completed_at)
+         VALUES (?, ?, ?, ?, NULL, 'claude-api', ?, ?, ?, ?, ?, ?, ?, ?, 'completed', datetime('now'), datetime('now'))`
+      ).bind(analysisId, repoId, user.tenant_id, branch, result.model, result.inputTokens, result.outputTokens, result.cost, result.xml, servicesCount, issuesCount, `${servicesCount} services, ${issuesCount} issues (Claude Haiku)`).run();
+
+      await c.env.DB.prepare(
+        `UPDATE repos SET status = 'ready', last_analyzed_at = datetime('now') WHERE id = ?`
+      ).bind(repoId).run();
+
+      return c.json({
+        ok: true, status: 'ready', source: 'claude-api',
+        services: servicesCount, issues: issuesCount,
+        cost: { input_tokens: result.inputTokens, output_tokens: result.outputTokens, cost_usd: result.cost, model: result.model },
+      });
+    } else {
+      // Cloudflare AI (default)
+      await triggerAnalysis(c.env, repoId, user.tenant_id, repo.full_name as string, branch, dbUser.github_token as string);
+      return c.json({ ok: true, status: 'ready', source: 'cloudflare-ai' });
+    }
+  } catch (err) {
+    await c.env.DB.prepare(`UPDATE repos SET status = 'error' WHERE id = ?`).bind(repoId).run();
+    return c.json({ ok: false, error: String(err) }, 500);
+  }
+});
+
+// Retry analysis (shorthand for POST /analyze with cloudflare-ai)
 repos.post('/:id/retry', async (c) => {
   const user = c.get('user');
   const repoId = c.req.param('id');
@@ -193,12 +255,10 @@ repos.post('/:id/retry', async (c) => {
   const dbUser = await c.env.DB.prepare('SELECT github_token FROM users WHERE id = ?').bind(user.sub).first();
   if (!dbUser?.github_token) return c.json({ error: 'GitHub not connected' }, 400);
 
-  // Reset status
   await c.env.DB.prepare(
     `UPDATE repos SET status = 'analyzing', updated_at = datetime('now') WHERE id = ?`
   ).bind(repoId).run();
 
-  // Run inline (not waitUntil) so errors propagate
   try {
     await triggerAnalysis(c.env, repoId, user.tenant_id, repo.full_name as string, repo.default_branch as string, dbUser.github_token as string);
     return c.json({ ok: true, status: 'ready' });

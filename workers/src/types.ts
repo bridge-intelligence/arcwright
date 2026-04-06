@@ -8,7 +8,10 @@ export interface Env {
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
   JWT_SECRET: string;
+  ANTHROPIC_API_KEY?: string;
 }
+
+export type AnalysisSource = 'cloudflare-ai' | 'claude-api' | 'claude-code';
 
 export interface JwtPayload {
   sub: string;
