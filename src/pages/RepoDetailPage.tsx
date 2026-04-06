@@ -663,28 +663,38 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
   repoId: string; repoName?: string; defaultBranch: string; onComplete: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<'engine' | 'files'>('engine');
   const [analyzing, setAnalyzing] = useState(false);
   const [selectedSource, setSelectedSource] = useState<'cloudflare-ai' | 'claude-api' | 'litellm'>('cloudflare-ai');
+  const [cfModel, setCfModel] = useState('llama-8b');
   const [branch, setBranch] = useState(defaultBranch);
   const [branches, setBranches] = useState<Array<{ name: string; sha: string; date: string | null; message: string | null }>>([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
+  const [treeFiles, setTreeFiles] = useState<Array<{ path: string; size: number }>>([]);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [loadingTree, setLoadingTree] = useState(false);
+  const [treeSearch, setTreeSearch] = useState('');
   const [result, setResult] = useState<{ cost?: { cost_usd: number; model: string; input_tokens: number; output_tokens: number } } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch branches when dropdown opens
   useEffect(() => {
     if (!open || branches.length > 0) return;
     setLoadingBranches(true);
-    reposApi.listBranches(repoId)
-      .then(setBranches)
-      .catch(() => {})
-      .finally(() => setLoadingBranches(false));
+    reposApi.listBranches(repoId).then(setBranches).catch(() => {}).finally(() => setLoadingBranches(false));
   }, [open, repoId, branches.length]);
+
+  const loadTree = useCallback(() => {
+    if (treeFiles.length > 0) return;
+    setLoadingTree(true);
+    reposApi.getTree(repoId, branch).then(d => setTreeFiles(d.files)).catch(() => {}).finally(() => setLoadingTree(false));
+  }, [repoId, branch, treeFiles.length]);
 
   const handleAnalyze = async () => {
     setAnalyzing(true); setResult(null); setError(null);
     try {
-      const res = await reposApi.analyze(repoId, selectedSource, branch);
+      const files = selectedFiles.size > 0 ? [...selectedFiles] : undefined;
+      const model = selectedSource === 'cloudflare-ai' ? cfModel : undefined;
+      const res = await reposApi.analyze(repoId, selectedSource, branch, model, files);
       setResult(res);
       onComplete();
       setTimeout(() => setOpen(false), 2000);
@@ -693,97 +703,148 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
     } finally { setAnalyzing(false); }
   };
 
+  const toggleFile = (path: string) => setSelectedFiles(prev => { const n = new Set(prev); if (n.has(path)) n.delete(path); else n.add(path); return n; });
   const selectedBranch = branches.find(b => b.name === branch);
-  const fileCount = selectedSource === 'claude-api' ? 60 : selectedSource === 'litellm' ? 10 : 8;
+
+  // Group files into directory tree
+  const dirs = useMemo(() => {
+    const filtered = treeFiles.filter(f => f.path.toLowerCase().includes(treeSearch.toLowerCase()));
+    const groups: Record<string, Array<{ path: string; size: number; name: string }>> = {};
+    for (const f of filtered) {
+      const parts = f.path.split('/');
+      const dir = parts.length > 1 ? parts.slice(0, -1).join('/') : '.';
+      if (!groups[dir]) groups[dir] = [];
+      groups[dir].push({ ...f, name: parts[parts.length - 1] });
+    }
+    return groups;
+  }, [treeFiles, treeSearch]);
+
+  const cfModels = [
+    { id: 'llama-8b', name: 'Llama 3.1 8B', cost: 'Free', files: 8 },
+    { id: 'gemma-12b', name: 'Gemma 3 12B', cost: 'Pay-go', files: 8 },
+    { id: 'qwen-14b', name: 'Qwen 2.5 32B Coder', cost: 'Pay-go', files: 8 },
+    { id: 'llama-70b', name: 'Llama 3.3 70B', cost: 'Pay-go', files: 8 },
+  ];
 
   return (
     <div className="relative">
       <button onClick={() => setOpen(!open)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-[11px] font-medium text-white">
         {analyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-        Analyze
-        <ChevronDown className="w-3 h-3" />
+        Analyze <ChevronDown className="w-3 h-3" />
       </button>
 
       {open && (
-        <div className="absolute right-0 top-10 w-80 rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl z-50 p-4 space-y-3">
-          <div className="text-xs font-semibold text-zinc-300">Run Analysis</div>
-
-          {/* Source selector */}
-          <div>
-            <label className="text-[10px] text-zinc-500 mb-1 block">Analysis Engine</label>
-            <div className="grid grid-cols-3 gap-1.5">
-              <button onClick={() => setSelectedSource('cloudflare-ai')}
-                className={`flex items-center gap-1 px-2 py-2 rounded-lg border text-[9px] font-medium transition-colors ${
-                  selectedSource === 'cloudflare-ai' ? 'border-orange-500/50 bg-orange-500/10 text-orange-400' : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
-                }`}>
-                <Zap className="w-3 h-3 flex-shrink-0" />
-                <div className="text-left"><div>CF AI</div><div className="text-[7px] text-zinc-600">Free · 8 files</div></div>
-              </button>
-              <button onClick={() => setSelectedSource('litellm')}
-                className={`flex items-center gap-1 px-2 py-2 rounded-lg border text-[9px] font-medium transition-colors ${
-                  selectedSource === 'litellm' ? 'border-green-500/50 bg-green-500/10 text-green-400' : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
-                }`}>
-                <Server className="w-3 h-3 flex-shrink-0" />
-                <div className="text-left"><div>On-Prem</div><div className="text-[7px] text-zinc-600">Free · 10 files</div></div>
-              </button>
-              <button onClick={() => setSelectedSource('claude-api')}
-                className={`flex items-center gap-1 px-2 py-2 rounded-lg border text-[9px] font-medium transition-colors ${
-                  selectedSource === 'claude-api' ? 'border-violet-500/50 bg-violet-500/10 text-violet-400' : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
-                }`}>
-                <Bot className="w-3 h-3 flex-shrink-0" />
-                <div className="text-left"><div>Claude</div><div className="text-[7px] text-zinc-600">~$0.02 · 60 files</div></div>
-              </button>
-            </div>
-          </div>
-
-          {/* Branch selector */}
-          <div>
-            <label className="text-[10px] text-zinc-500 mb-1 block">Branch</label>
-            {loadingBranches ? (
-              <div className="flex items-center gap-2 px-2.5 py-2 text-[10px] text-zinc-500"><Loader2 className="w-3 h-3 animate-spin" /> Loading branches...</div>
-            ) : (
-              <select value={branch} onChange={e => setBranch(e.target.value)}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800 text-[11px] text-white font-mono focus:outline-none focus:border-zinc-500 appearance-none">
-                {branches.length === 0 && <option value={defaultBranch}>{defaultBranch}</option>}
-                {branches.map(b => (
-                  <option key={b.name} value={b.name}>
-                    {b.name} — {b.sha.slice(0, 7)} {b.date ? `(${new Date(b.date).toLocaleDateString()})` : ''}
-                  </option>
-                ))}
-              </select>
-            )}
-            {selectedBranch?.message && (
-              <div className="text-[9px] text-zinc-600 mt-1 truncate">{selectedBranch.message}</div>
-            )}
-          </div>
-
-          {/* Info */}
-          <div className="text-[9px] text-zinc-500 bg-zinc-800/50 rounded-lg px-2.5 py-1.5">
-            {selectedSource === 'claude-api'
-              ? `Claude Haiku 4.5 · reads up to ${fileCount} files · 10KB/file · 8192 tokens · ~$0.02`
-              : selectedSource === 'litellm'
-              ? `On-Prem (Qwen 3.5-4B via LiteLLM) · reads ${fileCount} files · 5KB/file · free`
-              : `Cloudflare AI (llama-3.1-8b-fp8) · reads ${fileCount} files · 4KB/file · free`}
-          </div>
-
-          {/* Error */}
-          {error && <div className="text-[10px] text-red-400 bg-red-500/10 rounded-lg px-2.5 py-1.5">{error}</div>}
-
-          {/* Result */}
-          {result?.cost && (
-            <div className="text-[10px] text-green-400 bg-green-500/10 rounded-lg px-2.5 py-1.5">
-              Done — {result.cost.model} · {result.cost.input_tokens.toLocaleString()} in / {result.cost.output_tokens.toLocaleString()} out · ${result.cost.cost_usd.toFixed(4)}
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="flex gap-2">
-            <button onClick={() => setOpen(false)} className="flex-1 px-3 py-1.5 rounded-lg border border-zinc-700 text-[11px] text-zinc-400 hover:bg-zinc-800">Cancel</button>
-            <button onClick={handleAnalyze} disabled={analyzing || !branch.trim()}
-              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[11px] font-medium text-white">
-              {analyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-              {analyzing ? 'Analyzing...' : 'Run'}
+        <div className="absolute right-0 top-10 w-96 max-h-[80vh] rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl z-50 flex flex-col">
+          {/* Tabs */}
+          <div className="flex border-b border-zinc-800 px-3 pt-3">
+            <button onClick={() => setTab('engine')} className={`px-3 py-1.5 text-[10px] font-medium border-b-2 ${tab === 'engine' ? 'border-blue-500 text-white' : 'border-transparent text-zinc-500'}`}>Engine & Branch</button>
+            <button onClick={() => { setTab('files'); loadTree(); }} className={`px-3 py-1.5 text-[10px] font-medium border-b-2 ${tab === 'files' ? 'border-blue-500 text-white' : 'border-transparent text-zinc-500'}`}>
+              Files {selectedFiles.size > 0 && <span className="ml-1 px-1 rounded-full bg-blue-500/20 text-blue-400 text-[8px]">{selectedFiles.size}</span>}
             </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {tab === 'engine' && (
+              <>
+                {/* Source selector */}
+                <div>
+                  <label className="text-[10px] text-zinc-500 mb-1 block">Engine</label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {([
+                      { id: 'cloudflare-ai' as const, icon: Zap, label: 'CF AI', sub: 'Free', color: 'orange' },
+                      { id: 'litellm' as const, icon: Server, label: 'On-Prem', sub: 'Free', color: 'green' },
+                      { id: 'claude-api' as const, icon: Bot, label: 'Claude', sub: '~$0.02', color: 'violet' },
+                    ]).map(e => (
+                      <button key={e.id} onClick={() => setSelectedSource(e.id)}
+                        className={`flex items-center gap-1 px-2 py-1.5 rounded-lg border text-[9px] font-medium ${
+                          selectedSource === e.id ? `border-${e.color}-500/50 bg-${e.color}-500/10 text-${e.color}-400` : 'border-zinc-700 text-zinc-400'
+                        }`}>
+                        <e.icon className="w-3 h-3" />
+                        <div><div>{e.label}</div><div className="text-[7px] text-zinc-600">{e.sub}</div></div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* CF AI model selector */}
+                {selectedSource === 'cloudflare-ai' && (
+                  <div>
+                    <label className="text-[10px] text-zinc-500 mb-1 block">Model</label>
+                    <div className="grid grid-cols-2 gap-1">
+                      {cfModels.map(m => (
+                        <button key={m.id} onClick={() => setCfModel(m.id)}
+                          className={`px-2 py-1.5 rounded-lg border text-[9px] text-left ${
+                            cfModel === m.id ? 'border-orange-500/50 bg-orange-500/10 text-orange-300' : 'border-zinc-700 text-zinc-400'
+                          }`}>
+                          <div className="font-medium">{m.name}</div>
+                          <div className="text-[7px] text-zinc-600">{m.cost}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Branch */}
+                <div>
+                  <label className="text-[10px] text-zinc-500 mb-1 block">Branch</label>
+                  {loadingBranches ? <div className="flex items-center gap-2 text-[10px] text-zinc-500"><Loader2 className="w-3 h-3 animate-spin" /> Loading...</div> : (
+                    <select value={branch} onChange={e => { setBranch(e.target.value); setTreeFiles([]); setSelectedFiles(new Set()); }}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800 text-[11px] text-white font-mono focus:outline-none focus:border-zinc-500">
+                      {branches.length === 0 && <option value={defaultBranch}>{defaultBranch}</option>}
+                      {branches.map(b => <option key={b.name} value={b.name}>{b.name} — {b.sha.slice(0, 7)} {b.date ? `(${new Date(b.date).toLocaleDateString()})` : ''}</option>)}
+                    </select>
+                  )}
+                  {selectedBranch?.message && <div className="text-[8px] text-zinc-600 mt-1 truncate">{selectedBranch.message}</div>}
+                </div>
+              </>
+            )}
+
+            {tab === 'files' && (
+              <>
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-500" />
+                  <input type="text" value={treeSearch} onChange={e => setTreeSearch(e.target.value)} placeholder="Filter files..."
+                    className="w-full pl-7 pr-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800 text-[10px] placeholder-zinc-500 focus:outline-none" />
+                </div>
+                <div className="flex items-center justify-between text-[9px] text-zinc-500">
+                  <span>{treeFiles.length} files · {selectedFiles.size} selected</span>
+                  <div className="flex gap-2">
+                    <button onClick={() => setSelectedFiles(new Set(treeFiles.filter(f => /\.(ts|tsx|js|json|yaml|yml|prisma|gradle|py|kt|go)$/i.test(f.path)).map(f => f.path)))} className="text-blue-400 hover:text-blue-300">Select code</button>
+                    <button onClick={() => setSelectedFiles(new Set())} className="text-zinc-400 hover:text-zinc-300">Clear</button>
+                  </div>
+                </div>
+                {loadingTree ? <div className="flex items-center gap-2 py-4 justify-center text-[10px] text-zinc-500"><Loader2 className="w-3 h-3 animate-spin" /> Loading tree...</div> : (
+                  <div className="max-h-[300px] overflow-y-auto space-y-1">
+                    {Object.entries(dirs).sort(([a], [b]) => a.localeCompare(b)).map(([dir, files]) => (
+                      <div key={dir}>
+                        <div className="text-[9px] text-zinc-500 font-mono px-1 py-0.5 bg-zinc-800/50 rounded sticky top-0">{dir}/</div>
+                        {files.map(f => (
+                          <label key={f.path} className="flex items-center gap-1.5 px-2 py-0.5 hover:bg-zinc-800/30 rounded cursor-pointer">
+                            <input type="checkbox" checked={selectedFiles.has(f.path)} onChange={() => toggleFile(f.path)} className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500" />
+                            <span className="text-[9px] text-zinc-300 font-mono truncate flex-1">{f.name}</span>
+                            <span className="text-[8px] text-zinc-600">{(f.size / 1024).toFixed(1)}K</span>
+                          </label>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="p-3 border-t border-zinc-800 space-y-2">
+            {error && <div className="text-[10px] text-red-400 bg-red-500/10 rounded-lg px-2.5 py-1.5">{error}</div>}
+            {result?.cost && <div className="text-[10px] text-green-400 bg-green-500/10 rounded-lg px-2.5 py-1.5">Done — {result.cost.model} · {result.cost.input_tokens.toLocaleString()} in / {result.cost.output_tokens.toLocaleString()} out · ${result.cost.cost_usd.toFixed(4)}</div>}
+            <div className="flex gap-2">
+              <button onClick={() => setOpen(false)} className="flex-1 px-3 py-1.5 rounded-lg border border-zinc-700 text-[11px] text-zinc-400 hover:bg-zinc-800">Cancel</button>
+              <button onClick={handleAnalyze} disabled={analyzing || !branch.trim()}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[11px] font-medium text-white">
+                {analyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                {analyzing ? 'Analyzing...' : `Run${selectedFiles.size > 0 ? ` (${selectedFiles.size} files)` : ''}`}
+              </button>
+            </div>
           </div>
         </div>
       )}

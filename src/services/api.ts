@@ -127,13 +127,16 @@ export const reposApi = {
     return res.text();
   },
   retry: (id: string) => request<{ ok: boolean }>(`/repos/${id}/retry`, { method: 'POST' }),
-  analyze: (id: string, source?: string, branch?: string) => request<{
+  getTree: (id: string, branch?: string) => request<{
+    branch: string; total: number; files: Array<{ path: string; size: number }>;
+  }>(`/repos/${id}/tree${branch ? `?branch=${branch}` : ''}`),
+  analyze: (id: string, source?: string, branch?: string, model?: string, files?: string[]) => request<{
     ok: boolean; status: string; source: string;
     services?: number; issues?: number;
     cost?: { input_tokens: number; output_tokens: number; cost_usd: number; model: string };
   }>(`/repos/${id}/analyze`, {
     method: 'POST',
-    body: JSON.stringify({ source, branch }),
+    body: JSON.stringify({ source, branch, model, files }),
   }),
   toggleAutoSync: (id: string, enabled: boolean) => request<{ ok: boolean }>(`/repos/${id}/auto-sync`, {
     method: 'PATCH',

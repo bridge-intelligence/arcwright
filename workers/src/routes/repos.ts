@@ -183,9 +183,11 @@ repos.post('/connect', async (c) => {
 repos.post('/:id/analyze', async (c) => {
   const user = c.get('user');
   const repoId = c.req.param('id');
-  const body = await c.req.json<{ source?: string; branch?: string }>().catch(() => ({}));
+  const body = await c.req.json<{ source?: string; branch?: string; model?: string; files?: string[] }>().catch(() => ({}));
   const source = body.source || 'cloudflare-ai';
   const branchOverride = body.branch;
+  const modelOverride = body.model;
+  const selectedFiles = body.files; // User-selected file paths
 
   const repo = await c.env.DB.prepare(
     'SELECT * FROM repos WHERE id = ? AND tenant_id = ?'
@@ -260,9 +262,9 @@ repos.post('/:id/analyze', async (c) => {
       return c.json({ ok: true, status: 'ready', source: 'litellm', services: servicesCount, issues: issuesCount, cost: { input_tokens: result.inputTokens, output_tokens: result.outputTokens, cost_usd: 0, model: result.model } });
     } else {
       // Cloudflare AI (default)
-      await triggerAnalysis(c.env, repoId, user.tenant_id, repo.full_name as string, branch, dbUser.github_token as string);
-      await recordUsage(c.env.DB, user.tenant_id, user.sub, 'cf_ai', repoId, 'llama-3.1-8b-fp8', 0, 0, 0);
-      return c.json({ ok: true, status: 'ready', source: 'cloudflare-ai' });
+      await triggerAnalysis(c.env, repoId, user.tenant_id, repo.full_name as string, branch, dbUser.github_token as string, modelOverride, selectedFiles);
+      await recordUsage(c.env.DB, user.tenant_id, user.sub, 'cf_ai', repoId, modelOverride || 'llama-8b', 0, 0, 0);
+      return c.json({ ok: true, status: 'ready', source: 'cloudflare-ai', model: modelOverride || 'llama-8b' });
     }
   } catch (err) {
     await c.env.DB.prepare(`UPDATE repos SET status = 'error' WHERE id = ?`).bind(repoId).run();
@@ -362,6 +364,36 @@ repos.get('/:id/branches', async (c) => {
   }));
 });
 
+// Get file tree for a repo (for file selector UI)
+repos.get('/:id/tree', async (c) => {
+  const user = c.get('user');
+  const repoId = c.req.param('id');
+  const branch = c.req.query('branch');
+
+  const repo = await c.env.DB.prepare(
+    'SELECT full_name, default_branch FROM repos WHERE id = ? AND tenant_id = ?'
+  ).bind(repoId, user.tenant_id).first();
+  if (!repo) return c.json({ error: 'Not found' }, 404);
+
+  const dbUser = await c.env.DB.prepare('SELECT github_token FROM users WHERE id = ?').bind(user.sub).first();
+  if (!dbUser?.github_token) return c.json({ error: 'GitHub not connected' }, 400);
+
+  const targetBranch = branch || repo.default_branch as string;
+  const res = await fetch(`https://api.github.com/repos/${repo.full_name}/git/trees/${targetBranch}?recursive=1`, {
+    headers: { Authorization: `Bearer ${dbUser.github_token}`, 'User-Agent': 'Arcwright' },
+  });
+  if (!res.ok) return c.json({ error: `Failed to fetch tree: ${res.status}` }, 502);
+
+  const data = await res.json() as { tree: Array<{ path: string; type: string; size?: number; sha: string }> };
+
+  // Filter to only code/config files, exclude node_modules/dist/lock files
+  const files = data.tree
+    .filter(f => f.type === 'blob' && !f.path.includes('node_modules') && !f.path.includes('.lock') && !f.path.includes('dist/'))
+    .map(f => ({ path: f.path, size: f.size || 0 }));
+
+  return c.json({ branch: targetBranch, total: data.tree.length, files });
+});
+
 // Get XML architecture doc from D1
 repos.get('/:id/architecture.xml', async (c) => {
   const user = c.get('user');
@@ -448,7 +480,7 @@ repos.delete('/:id', async (c) => {
 });
 
 // --- Helper: trigger analysis ---
-async function triggerAnalysis(env: Env, repoId: string, tenantId: string, fullName: string, branch: string, githubToken: string) {
+async function triggerAnalysis(env: Env, repoId: string, tenantId: string, fullName: string, branch: string, githubToken: string, model?: string, selectedFiles?: string[]) {
   const analysisId = crypto.randomUUID();
 
   // Get latest commit SHA for tracking
@@ -481,7 +513,7 @@ async function triggerAnalysis(env: Env, repoId: string, tenantId: string, fullN
 
   // Run analysis asynchronously via waitUntil if available, otherwise inline
   try {
-    await runAnalysis(env, analysisId, repoId, tenantId, fullName, branch, githubToken);
+    await runAnalysis(env, analysisId, repoId, tenantId, fullName, branch, githubToken, model, selectedFiles);
   } catch (err) {
     console.error('Analysis failed:', err);
     await env.DB.prepare(
@@ -493,7 +525,7 @@ async function triggerAnalysis(env: Env, repoId: string, tenantId: string, fullN
   }
 }
 
-async function runAnalysis(env: Env, analysisId: string, repoId: string, tenantId: string, fullName: string, branch: string, githubToken: string) {
+async function runAnalysis(env: Env, analysisId: string, repoId: string, tenantId: string, fullName: string, branch: string, githubToken: string, cfModel?: string, selectedFiles?: string[]) {
   // 1. Fetch repo tree from GitHub API
   const treeRes = await fetch(
     `https://api.github.com/repos/${fullName}/git/trees/${branch}?recursive=1`,
@@ -609,15 +641,25 @@ Output ONLY valid XML (no markdown, no commentary):
 <issues><issue type="no_tests|dangling_code|security_concern|missing_docs" severity="info|warning|error" title="Title" file_path="path">Description</issue></issues>
 </architecture>`;
 
-  // 5. Call Workers AI (fp8 quantized for speed)
+  // 5. Call Workers AI (model selection)
+  const AI_MODELS: Record<string, { id: string; maxTokens: number }> = {
+    'llama-8b': { id: '@cf/meta/llama-3.1-8b-instruct-fp8', maxTokens: 3072 },
+    'llama-70b': { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', maxTokens: 4096 },
+    'gemma-12b': { id: '@cf/google/gemma-3-12b-it', maxTokens: 4096 },
+    'qwen-14b': { id: '@cf/qwen/qwen2.5-coder-32b-instruct', maxTokens: 4096 },
+  };
+
+  const modelKey = cfModel && AI_MODELS[cfModel] ? cfModel : 'llama-8b';
+  const selectedModel = AI_MODELS[modelKey];
+
   let xmlContent: string;
   try {
-    const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
+    const aiResponse = await env.AI.run(selectedModel.id as Parameters<typeof env.AI.run>[0], {
       messages: [
         { role: 'system', content: 'You are a software architect. Output ONLY valid XML. No markdown fences, no explanation.' },
         { role: 'user', content: prompt },
       ],
-      max_tokens: 3072,
+      max_tokens: selectedModel.maxTokens,
     });
     xmlContent = (aiResponse as { response?: string }).response || '';
     if (!xmlContent || xmlContent.length < 50) {
