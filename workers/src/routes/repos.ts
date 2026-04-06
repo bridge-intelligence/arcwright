@@ -292,10 +292,33 @@ repos.delete('/:id', async (c) => {
 async function triggerAnalysis(env: Env, repoId: string, tenantId: string, fullName: string, branch: string, githubToken: string) {
   const analysisId = crypto.randomUUID();
 
+  // Get latest commit SHA for tracking
+  let commitSha: string | null = null;
+  try {
+    const refRes = await fetch(`https://api.github.com/repos/${fullName}/git/ref/heads/${branch}`, {
+      headers: { Authorization: `Bearer ${githubToken}`, 'User-Agent': 'Arcwright' },
+    });
+    if (refRes.ok) {
+      const refData = await refRes.json() as { object: { sha: string } };
+      commitSha = refData.object.sha;
+    }
+  } catch {}
+
+  // Skip if already analyzed this commit
+  if (commitSha) {
+    const existing = await env.DB.prepare(
+      `SELECT id FROM analyses WHERE repo_id = ? AND commit_sha = ? AND status = 'completed'`
+    ).bind(repoId, commitSha).first();
+    if (existing) {
+      console.log(`Skipping analysis — commit ${commitSha.slice(0, 7)} already analyzed`);
+      return;
+    }
+  }
+
   await env.DB.prepare(
-    `INSERT INTO analyses (id, repo_id, tenant_id, branch, status, started_at)
-     VALUES (?, ?, ?, ?, 'running', datetime('now'))`
-  ).bind(analysisId, repoId, tenantId, branch).run();
+    `INSERT INTO analyses (id, repo_id, tenant_id, branch, commit_sha, source, status, started_at)
+     VALUES (?, ?, ?, ?, ?, 'cloudflare-ai', 'running', datetime('now'))`
+  ).bind(analysisId, repoId, tenantId, branch, commitSha).run();
 
   // Run analysis asynchronously via waitUntil if available, otherwise inline
   try {

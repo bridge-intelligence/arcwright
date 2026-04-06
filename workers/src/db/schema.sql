@@ -64,6 +64,8 @@ CREATE TABLE IF NOT EXISTS analyses (
   issues_count INTEGER DEFAULT 0,
   xml_content TEXT,
   summary TEXT,
+  source TEXT NOT NULL DEFAULT 'cloudflare-ai',
+  parent_service_id TEXT,
   started_at TEXT,
   completed_at TEXT,
   error TEXT,

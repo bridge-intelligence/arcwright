@@ -62,11 +62,19 @@ webhooks.post('/github', async (c) => {
     return c.json({ ignored: true, reason: `branch ${branch} is not default` });
   }
 
+  // Skip if we already analyzed this commit
+  const existingAnalysis = await c.env.DB.prepare(
+    `SELECT id FROM analyses WHERE repo_id = ? AND commit_sha = ? AND status = 'completed'`
+  ).bind(repo.id, commitSha).first();
+  if (existingAnalysis) {
+    return c.json({ ignored: true, reason: `commit ${commitSha.slice(0, 7)} already analyzed` });
+  }
+
   if (!repo.github_token) {
     return c.json({ error: 'No GitHub token available' }, 500);
   }
 
-  // Trigger re-analysis
+  // Trigger re-analysis (Cloudflare AI — fast, on-commit)
   await triggerAnalysis(
     c.env,
     repo.id as string,

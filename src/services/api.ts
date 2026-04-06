@@ -91,6 +91,9 @@ export interface RepoDetail extends Omit<RepoResponse, 'issues'> {
     services_count: number;
     issues_count: number;
     summary: string | null;
+    source: string | null;
+    commit_sha: string | null;
+    branch: string | null;
     completed_at: string | null;
   } | null;
   issues: Array<{

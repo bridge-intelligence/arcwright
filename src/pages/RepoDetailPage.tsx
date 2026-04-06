@@ -252,7 +252,15 @@ export default function RepoDetailPage() {
               <span className="flex items-center gap-1 text-[11px] text-zinc-400"><Server className="w-3 h-3" /> {parsed.services.length} services</span>
               <span className="flex items-center gap-1 text-[11px] text-zinc-400"><Link2 className="w-3 h-3" /> {parsed.connections.length} connections</span>
               <span className="flex items-center gap-1 text-[11px] text-zinc-400"><AlertCircle className="w-3 h-3" /> {parsed.issues.length} issues</span>
-              {parsed.branch && <span className="flex items-center gap-1 text-[11px] text-zinc-400"><GitBranch className="w-3 h-3" /> analyzed: {parsed.branch}</span>}
+              {parsed.branch && <span className="flex items-center gap-1 text-[11px] text-zinc-400"><GitBranch className="w-3 h-3" /> branch: {parsed.branch}</span>}
+              {repo.latest_analysis?.source && (
+                <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${
+                  repo.latest_analysis.source === 'claude-code' ? 'bg-violet-500/20 text-violet-400 border border-violet-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                }`}>{repo.latest_analysis.source === 'claude-code' ? 'Claude Code' : 'Cloudflare AI'}</span>
+              )}
+              {repo.latest_analysis?.commit_sha && (
+                <span className="text-[10px] text-zinc-600 font-mono">{repo.latest_analysis.commit_sha.slice(0, 7)}</span>
+              )}
               {parsed.flows.length > 0 && <span className="flex items-center gap-1 text-[11px] text-zinc-400"><Workflow className="w-3 h-3" /> {parsed.flows.length} flows</span>}
               <div className="flex flex-wrap gap-1 ml-auto">
                 {parsed.techStack.slice(0, 10).map(t => (
