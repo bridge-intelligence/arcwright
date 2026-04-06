@@ -664,7 +664,7 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
 }) {
   const [open, setOpen] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [selectedSource, setSelectedSource] = useState<'cloudflare-ai' | 'claude-api'>('cloudflare-ai');
+  const [selectedSource, setSelectedSource] = useState<'cloudflare-ai' | 'claude-api' | 'litellm'>('cloudflare-ai');
   const [branch, setBranch] = useState(defaultBranch);
   const [branches, setBranches] = useState<Array<{ name: string; sha: string; date: string | null; message: string | null }>>([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
@@ -694,7 +694,7 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
   };
 
   const selectedBranch = branches.find(b => b.name === branch);
-  const fileCount = selectedSource === 'claude-api' ? 30 : 8;
+  const fileCount = selectedSource === 'claude-api' ? 30 : selectedSource === 'litellm' ? 10 : 8;
 
   return (
     <div className="relative">
@@ -711,20 +711,27 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
           {/* Source selector */}
           <div>
             <label className="text-[10px] text-zinc-500 mb-1 block">Analysis Engine</label>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-3 gap-1.5">
               <button onClick={() => setSelectedSource('cloudflare-ai')}
-                className={`flex-1 flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-[10px] font-medium transition-colors ${
+                className={`flex items-center gap-1 px-2 py-2 rounded-lg border text-[9px] font-medium transition-colors ${
                   selectedSource === 'cloudflare-ai' ? 'border-orange-500/50 bg-orange-500/10 text-orange-400' : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
                 }`}>
-                <Zap className="w-3 h-3" />
-                <div className="text-left"><div>Fast (CF AI)</div><div className="text-[8px] text-zinc-600">Free · 8 files · ~40s</div></div>
+                <Zap className="w-3 h-3 flex-shrink-0" />
+                <div className="text-left"><div>CF AI</div><div className="text-[7px] text-zinc-600">Free · 8 files</div></div>
+              </button>
+              <button onClick={() => setSelectedSource('litellm')}
+                className={`flex items-center gap-1 px-2 py-2 rounded-lg border text-[9px] font-medium transition-colors ${
+                  selectedSource === 'litellm' ? 'border-green-500/50 bg-green-500/10 text-green-400' : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                }`}>
+                <Server className="w-3 h-3 flex-shrink-0" />
+                <div className="text-left"><div>On-Prem</div><div className="text-[7px] text-zinc-600">Free · 10 files</div></div>
               </button>
               <button onClick={() => setSelectedSource('claude-api')}
-                className={`flex-1 flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-[10px] font-medium transition-colors ${
+                className={`flex items-center gap-1 px-2 py-2 rounded-lg border text-[9px] font-medium transition-colors ${
                   selectedSource === 'claude-api' ? 'border-violet-500/50 bg-violet-500/10 text-violet-400' : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
                 }`}>
-                <Bot className="w-3 h-3" />
-                <div className="text-left"><div>Deep (Claude)</div><div className="text-[8px] text-zinc-600">~$0.01 · 30 files · ~20s</div></div>
+                <Bot className="w-3 h-3 flex-shrink-0" />
+                <div className="text-left"><div>Claude</div><div className="text-[7px] text-zinc-600">~$0.01 · 30 files</div></div>
               </button>
             </div>
           </div>
@@ -753,8 +760,10 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
           {/* Info */}
           <div className="text-[9px] text-zinc-500 bg-zinc-800/50 rounded-lg px-2.5 py-1.5">
             {selectedSource === 'claude-api'
-              ? `Claude Haiku 4.5 · reads ${fileCount} files · 8KB/file · 8192 output tokens · ~$0.01`
-              : `Cloudflare AI (llama-3.1-8b-fp8) · reads ${fileCount} files · 4KB/file · free tier`}
+              ? `Claude Haiku 4.5 · reads ${fileCount} files · 8KB/file · 8192 tokens · ~$0.01`
+              : selectedSource === 'litellm'
+              ? `On-Prem (Qwen 3.5-4B via LiteLLM) · reads ${fileCount} files · 5KB/file · free`
+              : `Cloudflare AI (llama-3.1-8b-fp8) · reads ${fileCount} files · 4KB/file · free`}
           </div>
 
           {/* Error */}

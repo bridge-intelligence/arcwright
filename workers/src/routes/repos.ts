@@ -240,10 +240,27 @@ repos.post('/:id/analyze', async (c) => {
         services: servicesCount, issues: issuesCount,
         cost: { input_tokens: result.inputTokens, output_tokens: result.outputTokens, cost_usd: result.cost, model: result.model },
       });
+    } else if (source === 'litellm') {
+      // LiteLLM (on-prem, free, uses local models)
+      const { analyzeWithLiteLLM } = await import('../services/litellm-analyzer');
+      const result = await analyzeWithLiteLLM(repo.full_name as string, branch, dbUser.github_token as string);
+
+      const analysisId = crypto.randomUUID();
+      const servicesCount = (result.xml.match(/<service /g) || []).length;
+      const issuesCount = (result.xml.match(/<issue /g) || []).length;
+
+      await c.env.DB.prepare(
+        `INSERT INTO analyses (id, repo_id, tenant_id, branch, source, model, input_tokens, output_tokens, cost_usd, xml_content, services_count, issues_count, summary, status, started_at, completed_at)
+         VALUES (?, ?, ?, ?, 'litellm', ?, ?, ?, 0, ?, ?, ?, ?, 'completed', datetime('now'), datetime('now'))`
+      ).bind(analysisId, repoId, user.tenant_id, branch, result.model, result.inputTokens, result.outputTokens, result.xml, servicesCount, issuesCount, `${servicesCount} services, ${issuesCount} issues (LiteLLM)`).run();
+
+      await c.env.DB.prepare(`UPDATE repos SET status = 'ready', last_analyzed_at = datetime('now') WHERE id = ?`).bind(repoId).run();
+      await recordUsage(c.env.DB, user.tenant_id, user.sub, 'litellm', repoId, result.model, result.inputTokens, result.outputTokens, 0);
+
+      return c.json({ ok: true, status: 'ready', source: 'litellm', services: servicesCount, issues: issuesCount, cost: { input_tokens: result.inputTokens, output_tokens: result.outputTokens, cost_usd: 0, model: result.model } });
     } else {
       // Cloudflare AI (default)
       await triggerAnalysis(c.env, repoId, user.tenant_id, repo.full_name as string, branch, dbUser.github_token as string);
-      // Record CF AI usage (free)
       await recordUsage(c.env.DB, user.tenant_id, user.sub, 'cf_ai', repoId, 'llama-3.1-8b-fp8', 0, 0, 0);
       return c.json({ ok: true, status: 'ready', source: 'cloudflare-ai' });
     }
