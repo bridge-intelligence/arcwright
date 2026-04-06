@@ -291,6 +291,48 @@ repos.get('/:id', async (c) => {
   return c.json({ ...repo, latest_analysis: latestAnalysis, issues });
 });
 
+// List branches for a repo from GitHub
+repos.get('/:id/branches', async (c) => {
+  const user = c.get('user');
+  const repoId = c.req.param('id');
+
+  const repo = await c.env.DB.prepare(
+    'SELECT full_name FROM repos WHERE id = ? AND tenant_id = ?'
+  ).bind(repoId, user.tenant_id).first();
+  if (!repo) return c.json({ error: 'Not found' }, 404);
+
+  const dbUser = await c.env.DB.prepare('SELECT github_token FROM users WHERE id = ?').bind(user.sub).first();
+  if (!dbUser?.github_token) return c.json({ error: 'GitHub not connected' }, 400);
+
+  const res = await fetch(`https://api.github.com/repos/${repo.full_name}/branches?per_page=30`, {
+    headers: { Authorization: `Bearer ${dbUser.github_token}`, 'User-Agent': 'Arcwright' },
+  });
+  if (!res.ok) return c.json({ error: 'Failed to fetch branches' }, 502);
+
+  const branches = await res.json() as Array<{ name: string; commit: { sha: string; url: string } }>;
+
+  // Fetch commit dates in parallel (max 10 branches)
+  const withDates = await Promise.all(
+    branches.slice(0, 15).map(async (b) => {
+      try {
+        const commitRes = await fetch(b.commit.url, {
+          headers: { Authorization: `Bearer ${dbUser.github_token}`, 'User-Agent': 'Arcwright' },
+        });
+        if (commitRes.ok) {
+          const commit = await commitRes.json() as { commit: { committer: { date: string }; message: string } };
+          return { name: b.name, sha: b.commit.sha, date: commit.commit.committer.date, message: commit.commit.message.split('\n')[0] };
+        }
+      } catch {}
+      return { name: b.name, sha: b.commit.sha, date: null, message: null };
+    })
+  );
+
+  return c.json(withDates.sort((a, b) => {
+    if (!a.date || !b.date) return 0;
+    return new Date(b.date).getTime() - new Date(a.date).getTime();
+  }));
+});
+
 // Get XML architecture doc from D1
 repos.get('/:id/architecture.xml', async (c) => {
   const user = c.get('user');

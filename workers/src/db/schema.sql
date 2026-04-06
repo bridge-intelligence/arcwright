@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS projects (
   slug TEXT NOT NULL,
   description TEXT,
   created_by TEXT NOT NULL REFERENCES users(id),
+  system_instructions TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -48,6 +49,8 @@ CREATE TABLE IF NOT EXISTS repos (
   webhook_id INTEGER,
   webhook_secret TEXT,
   auto_sync INTEGER NOT NULL DEFAULT 1,
+  system_instructions TEXT,
+  layout_data TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
   last_analyzed_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),

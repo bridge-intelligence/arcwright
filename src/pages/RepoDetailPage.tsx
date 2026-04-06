@@ -599,23 +599,35 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
   const [analyzing, setAnalyzing] = useState(false);
   const [selectedSource, setSelectedSource] = useState<'cloudflare-ai' | 'claude-api'>('cloudflare-ai');
   const [branch, setBranch] = useState(defaultBranch);
+  const [branches, setBranches] = useState<Array<{ name: string; sha: string; date: string | null; message: string | null }>>([]);
+  const [loadingBranches, setLoadingBranches] = useState(false);
   const [result, setResult] = useState<{ cost?: { cost_usd: number; model: string; input_tokens: number; output_tokens: number } } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch branches when dropdown opens
+  useEffect(() => {
+    if (!open || branches.length > 0) return;
+    setLoadingBranches(true);
+    reposApi.listBranches(repoId)
+      .then(setBranches)
+      .catch(() => {})
+      .finally(() => setLoadingBranches(false));
+  }, [open, repoId, branches.length]);
 
   const handleAnalyze = async () => {
-    setAnalyzing(true);
-    setResult(null);
+    setAnalyzing(true); setResult(null); setError(null);
     try {
       const res = await reposApi.analyze(repoId, selectedSource, branch);
       setResult(res);
       onComplete();
       setTimeout(() => setOpen(false), 2000);
     } catch (err) {
-      setResult({ cost: undefined });
-      console.error('Analysis failed:', err);
-    } finally {
-      setAnalyzing(false);
-    }
+      setError(err instanceof Error ? err.message : 'Analysis failed');
+    } finally { setAnalyzing(false); }
   };
+
+  const selectedBranch = branches.find(b => b.name === branch);
+  const fileCount = selectedSource === 'claude-api' ? 30 : 8;
 
   return (
     <div className="relative">
@@ -626,7 +638,7 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-10 w-72 rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl z-50 p-4 space-y-3">
+        <div className="absolute right-0 top-10 w-80 rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl z-50 p-4 space-y-3">
           <div className="text-xs font-semibold text-zinc-300">Run Analysis</div>
 
           {/* Source selector */}
@@ -638,36 +650,53 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
                   selectedSource === 'cloudflare-ai' ? 'border-orange-500/50 bg-orange-500/10 text-orange-400' : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
                 }`}>
                 <Zap className="w-3 h-3" />
-                <div className="text-left"><div>Fast (CF AI)</div><div className="text-[8px] text-zinc-600">Free · ~40s</div></div>
+                <div className="text-left"><div>Fast (CF AI)</div><div className="text-[8px] text-zinc-600">Free · 8 files · ~40s</div></div>
               </button>
               <button onClick={() => setSelectedSource('claude-api')}
                 className={`flex-1 flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-[10px] font-medium transition-colors ${
                   selectedSource === 'claude-api' ? 'border-violet-500/50 bg-violet-500/10 text-violet-400' : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
                 }`}>
                 <Bot className="w-3 h-3" />
-                <div className="text-left"><div>Deep (Claude)</div><div className="text-[8px] text-zinc-600">~$0.01 · ~15s</div></div>
+                <div className="text-left"><div>Deep (Claude)</div><div className="text-[8px] text-zinc-600">~$0.01 · 30 files · ~20s</div></div>
               </button>
             </div>
           </div>
 
-          {/* Branch input */}
+          {/* Branch selector */}
           <div>
             <label className="text-[10px] text-zinc-500 mb-1 block">Branch</label>
-            <input type="text" value={branch} onChange={e => setBranch(e.target.value)}
-              className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800 text-[11px] text-white font-mono focus:outline-none focus:border-zinc-500" />
+            {loadingBranches ? (
+              <div className="flex items-center gap-2 px-2.5 py-2 text-[10px] text-zinc-500"><Loader2 className="w-3 h-3 animate-spin" /> Loading branches...</div>
+            ) : (
+              <select value={branch} onChange={e => setBranch(e.target.value)}
+                className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800 text-[11px] text-white font-mono focus:outline-none focus:border-zinc-500 appearance-none">
+                {branches.length === 0 && <option value={defaultBranch}>{defaultBranch}</option>}
+                {branches.map(b => (
+                  <option key={b.name} value={b.name}>
+                    {b.name} — {b.sha.slice(0, 7)} {b.date ? `(${new Date(b.date).toLocaleDateString()})` : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+            {selectedBranch?.message && (
+              <div className="text-[9px] text-zinc-600 mt-1 truncate">{selectedBranch.message}</div>
+            )}
           </div>
 
-          {/* Cost estimate */}
-          {selectedSource === 'claude-api' && (
-            <div className="text-[9px] text-zinc-500 bg-zinc-800/50 rounded-lg px-2.5 py-1.5">
-              Estimated cost: ~$0.01 (Haiku 4.5). Reads 20 files, generates detailed XML with modules and flows.
-            </div>
-          )}
+          {/* Info */}
+          <div className="text-[9px] text-zinc-500 bg-zinc-800/50 rounded-lg px-2.5 py-1.5">
+            {selectedSource === 'claude-api'
+              ? `Claude Haiku 4.5 · reads ${fileCount} files · 8KB/file · 8192 output tokens · ~$0.01`
+              : `Cloudflare AI (llama-3.1-8b-fp8) · reads ${fileCount} files · 4KB/file · free tier`}
+          </div>
+
+          {/* Error */}
+          {error && <div className="text-[10px] text-red-400 bg-red-500/10 rounded-lg px-2.5 py-1.5">{error}</div>}
 
           {/* Result */}
           {result?.cost && (
             <div className="text-[10px] text-green-400 bg-green-500/10 rounded-lg px-2.5 py-1.5">
-              Done — {result.cost.model} · {result.cost.input_tokens} in / {result.cost.output_tokens} out · ${result.cost.cost_usd.toFixed(4)}
+              Done — {result.cost.model} · {result.cost.input_tokens.toLocaleString()} in / {result.cost.output_tokens.toLocaleString()} out · ${result.cost.cost_usd.toFixed(4)}
             </div>
           )}
 

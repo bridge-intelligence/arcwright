@@ -59,7 +59,7 @@ projects.get('/:id', async (c) => {
 projects.put('/:id', async (c) => {
   const user = c.get('user');
   const projectId = c.req.param('id');
-  const body = await c.req.json<{ name?: string; description?: string }>();
+  const body = await c.req.json<{ name?: string; description?: string; system_instructions?: string }>();
 
   const project = await c.env.DB.prepare(
     'SELECT * FROM projects WHERE id = ? AND tenant_id = ?'
@@ -68,8 +68,8 @@ projects.put('/:id', async (c) => {
   if (!project) return c.json({ error: 'Not found' }, 404);
 
   await c.env.DB.prepare(
-    `UPDATE projects SET name = COALESCE(?, name), description = COALESCE(?, description), updated_at = datetime('now') WHERE id = ?`
-  ).bind(body.name?.trim() || null, body.description?.trim() || null, projectId).run();
+    `UPDATE projects SET name = COALESCE(?, name), description = COALESCE(?, description), system_instructions = COALESCE(?, system_instructions), updated_at = datetime('now') WHERE id = ?`
+  ).bind(body.name?.trim() || null, body.description?.trim() || null, body.system_instructions !== undefined ? body.system_instructions : null, projectId).run();
 
   return c.json({ ok: true });
 });

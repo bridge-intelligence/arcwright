@@ -58,8 +58,8 @@ export async function analyzeWithClaude(
     depth: f.path.split('/').length,
   })).sort((a, b) => a.priority - b.priority || a.depth - b.depth);
 
-  // 3. Fetch up to 20 files (Claude can handle much more context)
-  const filesToAnalyze = scored.slice(0, 20);
+  // 3. Fetch up to 30 files (Claude has 200K context — no subrequest limit since it's one API call)
+  const filesToAnalyze = scored.slice(0, 30);
   const fileContents: Array<{ path: string; content: string }> = [];
 
   for (const file of filesToAnalyze) {

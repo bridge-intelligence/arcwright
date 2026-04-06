@@ -139,6 +139,7 @@ export const reposApi = {
     method: 'PATCH',
     body: JSON.stringify({ enabled }),
   }),
+  listBranches: (id: string) => request<Array<{ name: string; sha: string; date: string | null; message: string | null }>>(`/repos/${id}/branches`),
   saveLayout: (id: string, positions: Record<string, { x: number; y: number }>) => request<{ ok: boolean }>(`/repos/${id}/layout`, {
     method: 'PATCH',
     body: JSON.stringify({ positions }),
