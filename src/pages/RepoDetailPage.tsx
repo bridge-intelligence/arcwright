@@ -8,7 +8,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import {
   ArrowLeft, AlertCircle, CheckCircle2, Loader2, FileCode2,
-  Server, ExternalLink, Workflow, X, Database, Search, RefreshCw, ChevronDown, Zap, Bot,
+  Server, ExternalLink, Workflow, X, Database, Search, RefreshCw, ChevronDown, Zap, Bot, Radio, Lightbulb,
 } from 'lucide-react';
 import { reposApi, type RepoDetail } from '../services/api';
 import ArchServiceNode, { type ArchNodeData } from '../components/ArchServiceNode';
@@ -30,16 +30,23 @@ interface ParsedFlow {
   id: string; name: string;
   steps: Array<{ order: number; service: string; action: string }>;
 }
+interface ParsedDataFlow {
+  name: string; type: string; producers: string; consumers: string; description: string;
+}
+interface ParsedInsight {
+  agent: string; title: string; description: string;
+}
 interface ParsedArch {
   summary: string; branch: string;
   techStack: Array<{ name: string; category: string }>;
   services: ParsedService[]; connections: ParsedConnection[];
   flows: ParsedFlow[]; issues: ParsedIssue[];
+  dataFlows: ParsedDataFlow[]; insights: ParsedInsight[];
 }
 
 // --- XML Parser ---
 function parseArchXml(xml: string): ParsedArch {
-  const result: ParsedArch = { summary: '', branch: '', techStack: [], services: [], connections: [], flows: [], issues: [] };
+  const result: ParsedArch = { summary: '', branch: '', techStack: [], services: [], connections: [], flows: [], issues: [], dataFlows: [], insights: [] };
   const branchMatch = xml.match(/branch="([^"]*?)"/);
   if (branchMatch) result.branch = branchMatch[1];
   const summaryMatch = xml.match(/<summary>([\s\S]*?)<\/summary>/);
@@ -83,6 +90,13 @@ function parseArchXml(xml: string): ParsedArch {
     let s; while ((s = stepRegex.exec(m[3])) !== null) steps.push({ order: parseInt(s[1]), service: s[2], action: s[3] });
     result.flows.push({ id: m[1], name: m[2], steps: steps.sort((a, b) => a.order - b.order) });
   }
+
+  const dfRegex = /<topic\s+name="([^"]*?)"\s+type="([^"]*?)"\s+producers="([^"]*?)"\s+consumers="([^"]*?)"\s+description="([^"]*?)"\s*\/?\s*>/g;
+  while ((m = dfRegex.exec(xml)) !== null) result.dataFlows.push({ name: m[1], type: m[2], producers: m[3], consumers: m[4], description: m[5] });
+
+  const insightRegex = /<insight\s+agent="([^"]*?)"\s+title="([^"]*?)"[^>]*>([\s\S]*?)<\/insight>/g;
+  while ((m = insightRegex.exec(xml)) !== null) result.insights.push({ agent: m[1], title: m[2], description: m[3].trim() });
+
   return result;
 }
 
@@ -103,7 +117,7 @@ export default function RepoDetailPage() {
   const [repo, setRepo] = useState<RepoDetail | null>(null);
   const [xml, setXml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'graph' | 'flows' | 'issues' | 'xml'>('graph');
+  const [activeTab, setActiveTab] = useState<'graph' | 'flows' | 'data' | 'issues' | 'insights' | 'xml'>('graph');
   const [selectedService, setSelectedService] = useState<ParsedService | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTiers, setActiveTiers] = useState<Set<string>>(new Set());
@@ -356,12 +370,14 @@ export default function RepoDetailPage() {
           <div className="flex-1" />
 
           {/* Tabs */}
-          {([['graph', 'Architecture', Server], ['flows', 'Flows', Workflow], ['issues', 'Issues', AlertCircle], ['xml', 'XML', FileCode2]] as const).map(([key, label, Icon]) => (
+          {([['graph', 'Architecture', Server], ['flows', 'Flows', Workflow], ['data', 'Data Flows', Radio], ['issues', 'Issues', AlertCircle], ['insights', 'Insights', Lightbulb], ['xml', 'XML', FileCode2]] as const).map(([key, label, Icon]) => (
             <button key={key} onClick={() => setActiveTab(key)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${
               activeTab === key ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>
               <Icon className="w-3 h-3" /> {label}
               {key === 'issues' && parsed && parsed.issues.length > 0 && <span className="px-1 rounded-full bg-yellow-500/20 text-yellow-400 text-[9px] ml-0.5">{parsed.issues.length}</span>}
               {key === 'flows' && parsed && parsed.flows.length > 0 && <span className="px-1 rounded-full bg-cyan-500/20 text-cyan-400 text-[9px] ml-0.5">{parsed.flows.length}</span>}
+              {key === 'data' && parsed && parsed.dataFlows.length > 0 && <span className="px-1 rounded-full bg-green-500/20 text-green-400 text-[9px] ml-0.5">{parsed.dataFlows.length}</span>}
+              {key === 'insights' && parsed && parsed.insights.length > 0 && <span className="px-1 rounded-full bg-violet-500/20 text-violet-400 text-[9px] ml-0.5">{parsed.insights.length}</span>}
             </button>
           ))}
         </div>
@@ -525,6 +541,32 @@ export default function RepoDetailPage() {
           </div>
         )}
 
+        {activeTab === 'data' && parsed && (
+          <div className="max-w-4xl mx-auto px-6 py-6 overflow-y-auto max-h-[calc(100vh-200px)]">
+            {parsed.dataFlows.length === 0 ? (
+              <div className="text-center py-12 text-sm text-zinc-500">No data flows detected. Run a Deep (Claude) analysis to extract Kafka topics, Redis channels, and event streams.</div>
+            ) : (
+              <div className="space-y-2">
+                {parsed.dataFlows.map((df, i) => (
+                  <div key={i} className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Radio className="w-4 h-4 text-green-400" />
+                      <span className="text-sm font-medium">{df.name}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] bg-zinc-800 text-zinc-400">{df.type}</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-[11px] text-zinc-400">
+                      <span>Producers: <span className="text-zinc-300 font-medium">{df.producers}</span></span>
+                      <span className="text-zinc-600">→</span>
+                      <span>Consumers: <span className="text-zinc-300 font-medium">{df.consumers}</span></span>
+                    </div>
+                    {df.description && <p className="text-[10px] text-zinc-500 mt-1">{df.description}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === 'issues' && parsed && (
           <div className="max-w-4xl mx-auto px-6 py-6 overflow-y-auto max-h-[calc(100vh-200px)]">
             {parsed.issues.length === 0 ? <div className="text-center py-12 text-sm text-zinc-500">No issues.</div> : (
@@ -545,6 +587,31 @@ export default function RepoDetailPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'insights' && parsed && (
+          <div className="max-w-4xl mx-auto px-6 py-6 overflow-y-auto max-h-[calc(100vh-200px)]">
+            {parsed.insights.length === 0 ? (
+              <div className="text-center py-12 text-sm text-zinc-500">No agent insights. Run a Deep (Claude) analysis to get multi-perspective assessments.</div>
+            ) : (
+              <div className="space-y-3">
+                {parsed.insights.map((ins, i) => {
+                  const agentColors: Record<string, string> = { architect: '#3b82f6', security: '#ef4444', devops: '#22c55e', performance: '#f97316' };
+                  const color = agentColors[ins.agent] || '#a855f7';
+                  return (
+                    <div key={i} className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+                        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color }}>{ins.agent}</span>
+                        <span className="text-sm font-medium text-zinc-200">{ins.title}</span>
+                      </div>
+                      <p className="text-xs text-zinc-400 leading-relaxed">{ins.description}</p>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

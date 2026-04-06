@@ -101,11 +101,13 @@ INSTRUCTIONS:
 2. Group API endpoints into logical modules (auth, users, billing, etc.)
 3. Include port numbers from configs (package.json scripts, docker-compose, k8s manifests)
 4. List ALL connections with protocol and data flow description
-5. Parse docker-compose.yml and k8s/ configs for infrastructure services
-6. Identify data flows: Kafka topics, Redis channels, event streams
+5. Parse docker-compose.yml and k8s/ configs for infrastructure services — include replicas, resources, env vars
+6. Identify data flows: Kafka topics (name, producers, consumers), Redis channels, event streams, webhooks
 7. Define at least 3 user flows showing step-by-step service interactions
 8. Flag real issues: missing tests, security concerns, dead code, missing docs
-9. Extract tech stack from package.json dependencies
+9. Extract tech stack from package.json/build.gradle/requirements.txt dependencies
+10. If k8s/ or helm/ directories exist, extract deployment metadata (namespace, replicas, resources, probes)
+11. Analyze from multiple perspectives: architecture, security, performance, operations
 
 Output ONLY this XML structure (no markdown fences, no explanation):
 
@@ -121,15 +123,24 @@ Output ONLY this XML structure (no markdown fences, no explanation):
 </module>
 </modules>
 <databases><database type="postgresql|redis|neo4j|mongodb|sqlite|qdrant" name="db_name" purpose="what data" /></databases>
+<deployment namespace="k8s-namespace" replicas="N" image="image:tag" />
 </service>
 </services>
 <connections><connection from="svc-id" to="svc-id" protocol="http|kafka|redis|grpc|prisma|bolt|mongodb|websocket|binding|d1" direction="one-way|two-way" label="short label" description="what data flows and why" /></connections>
+<data_flows>
+<topic name="topic.name" type="kafka|redis|event" producers="svc-id" consumers="svc-id" description="what data and when" />
+</data_flows>
 <user_flows>
 <flow id="flow-id" name="Flow Name">
 <step order="1" service="svc-id" action="Detailed action description" />
 </flow>
 </user_flows>
 <issues><issue type="no_tests|dangling_code|security_concern|missing_docs|circular_dependency|no_error_handling" severity="info|warning|error" title="Title" file_path="path/to/file">Detailed description of the issue</issue></issues>
+<agent_insights>
+<insight agent="architect" title="Insight title">Architectural observation or recommendation</insight>
+<insight agent="security" title="Insight title">Security finding or recommendation</insight>
+<insight agent="devops" title="Insight title">DevOps/operational observation</insight>
+</agent_insights>
 </architecture>`;
 
   // 5. Call Claude API
