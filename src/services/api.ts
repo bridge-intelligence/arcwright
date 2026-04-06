@@ -123,6 +123,10 @@ export const reposApi = {
     return res.text();
   },
   retry: (id: string) => request<{ ok: boolean }>(`/repos/${id}/retry`, { method: 'POST' }),
+  toggleAutoSync: (id: string, enabled: boolean) => request<{ ok: boolean }>(`/repos/${id}/auto-sync`, {
+    method: 'PATCH',
+    body: JSON.stringify({ enabled }),
+  }),
   disconnect: (id: string) => request<{ ok: boolean }>(`/repos/${id}`, { method: 'DELETE' }),
   listAvailable: () => request<{
     username: string;

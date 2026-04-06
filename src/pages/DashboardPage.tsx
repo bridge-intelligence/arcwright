@@ -149,10 +149,16 @@ export default function DashboardPage() {
                 <FolderGit2 className="w-3.5 h-3.5" /> All <span className="ml-auto text-zinc-600">{repos.length}</span>
               </button>
               {projects.map(p => (
-                <button key={p.id} onClick={() => setSelectedProjectId(p.id)}
-                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${selectedProjectId === p.id ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-zinc-800/50'}`}>
-                  <FolderOpen className="w-3.5 h-3.5" /> <span className="truncate">{p.name}</span> <span className="ml-auto text-zinc-600">{p.repo_count}</span>
-                </button>
+                <div key={p.id} className="flex items-center gap-0">
+                  <button onClick={() => setSelectedProjectId(p.id)}
+                    className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-l-lg text-xs ${selectedProjectId === p.id ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-zinc-800/50'}`}>
+                    <FolderOpen className="w-3.5 h-3.5" /> <span className="truncate">{p.name}</span> <span className="ml-auto text-zinc-600">{p.repo_count}</span>
+                  </button>
+                  <button onClick={() => navigate(`/project/${p.id}`)} title="View project architecture"
+                    className="px-1.5 py-2 rounded-r-lg text-zinc-600 hover:text-blue-400 hover:bg-zinc-800/50">
+                    <ExternalLink className="w-3 h-3" />
+                  </button>
+                </div>
               ))}
               {unassignedCount > 0 && (
                 <button onClick={() => setSelectedProjectId('unassigned')}

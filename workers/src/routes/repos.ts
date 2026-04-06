@@ -129,7 +129,8 @@ repos.post('/connect', async (c) => {
 
   const ghRepo: GitHubRepo = await ghRes.json();
 
-  // Create webhook for live sync
+  // Create webhook for live sync (must point to Worker, not Pages)
+  const workerOrigin = new URL(c.req.url).origin;
   const webhookSecret = crypto.randomUUID();
   let webhookId: number | null = null;
 
@@ -146,7 +147,7 @@ repos.post('/connect', async (c) => {
         active: true,
         events: ['push'],
         config: {
-          url: `${c.env.APP_URL}/api/webhooks/github`,
+          url: `${workerOrigin}/api/webhooks/github`,
           content_type: 'json',
           secret: webhookSecret,
         },
@@ -251,6 +252,19 @@ repos.get('/:id/architecture.xml', async (c) => {
   return new Response(latestAnalysis.xml_content as string, {
     headers: { 'Content-Type': 'application/xml' },
   });
+});
+
+// Toggle auto-sync for a repo
+repos.patch('/:id/auto-sync', async (c) => {
+  const user = c.get('user');
+  const repoId = c.req.param('id');
+  const body = await c.req.json<{ enabled: boolean }>();
+
+  await c.env.DB.prepare(
+    `UPDATE repos SET auto_sync = ?, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`
+  ).bind(body.enabled ? 1 : 0, repoId, user.tenant_id).run();
+
+  return c.json({ ok: true, auto_sync: body.enabled });
 });
 
 // Disconnect repo

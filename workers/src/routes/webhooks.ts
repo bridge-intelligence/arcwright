@@ -39,6 +39,11 @@ webhooks.post('/github', async (c) => {
     return c.json({ ignored: true, reason: 'repo not connected' });
   }
 
+  // Check auto-sync setting
+  if (!repo.auto_sync) {
+    return c.json({ ignored: true, reason: 'auto-sync disabled for this repo' });
+  }
+
   // Verify webhook signature
   if (repo.webhook_secret && signature) {
     const encoder = new TextEncoder();
