@@ -58,8 +58,9 @@ export async function analyzeWithClaude(
     depth: f.path.split('/').length,
   })).sort((a, b) => a.priority - b.priority || a.depth - b.depth);
 
-  // 3. Fetch up to 30 files (Claude has 200K context — no subrequest limit since it's one API call)
-  const filesToAnalyze = scored.slice(0, 30);
+  // 3. Fetch all priority files (Claude has 200K context — no limit needed)
+  // Cap at 60 files max to keep prompt reasonable
+  const filesToAnalyze = scored.slice(0, 60);
   const fileContents: Array<{ path: string; content: string }> = [];
 
   for (const file of filesToAnalyze) {
@@ -70,7 +71,7 @@ export async function analyzeWithClaude(
       );
       if (res.ok) {
         const content = await res.text();
-        fileContents.push({ path: file.path, content: content.slice(0, 8000) });
+        fileContents.push({ path: file.path, content: content.slice(0, 10000) });
       }
     } catch {}
   }
@@ -78,7 +79,7 @@ export async function analyzeWithClaude(
   const fileTree = tree.tree
     .filter(f => f.type === 'blob')
     .map(f => f.path)
-    .slice(0, 300)
+    .slice(0, 500)
     .join('\n');
 
   const fileSummaries = fileContents

@@ -694,7 +694,7 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
   };
 
   const selectedBranch = branches.find(b => b.name === branch);
-  const fileCount = selectedSource === 'claude-api' ? 30 : selectedSource === 'litellm' ? 10 : 8;
+  const fileCount = selectedSource === 'claude-api' ? 60 : selectedSource === 'litellm' ? 10 : 8;
 
   return (
     <div className="relative">
@@ -731,7 +731,7 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
                   selectedSource === 'claude-api' ? 'border-violet-500/50 bg-violet-500/10 text-violet-400' : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
                 }`}>
                 <Bot className="w-3 h-3 flex-shrink-0" />
-                <div className="text-left"><div>Claude</div><div className="text-[7px] text-zinc-600">~$0.01 · 30 files</div></div>
+                <div className="text-left"><div>Claude</div><div className="text-[7px] text-zinc-600">~$0.02 · 60 files</div></div>
               </button>
             </div>
           </div>
@@ -760,7 +760,7 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
           {/* Info */}
           <div className="text-[9px] text-zinc-500 bg-zinc-800/50 rounded-lg px-2.5 py-1.5">
             {selectedSource === 'claude-api'
-              ? `Claude Haiku 4.5 · reads ${fileCount} files · 8KB/file · 8192 tokens · ~$0.01`
+              ? `Claude Haiku 4.5 · reads up to ${fileCount} files · 10KB/file · 8192 tokens · ~$0.02`
               : selectedSource === 'litellm'
               ? `On-Prem (Qwen 3.5-4B via LiteLLM) · reads ${fileCount} files · 5KB/file · free`
               : `Cloudflare AI (llama-3.1-8b-fp8) · reads ${fileCount} files · 4KB/file · free`}
