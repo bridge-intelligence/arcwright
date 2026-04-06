@@ -1,0 +1,72 @@
+<architecture repo="bridge-intelligence/arcwright" branch="cloudflare" analyzed_at="2026-04-06T15:45:46.747Z">
+    <summary>Bridge Intelligence Arcwright is a web application built with React, utilizing Cloudflare Workers for serverless functionality and a PostgreSQL database for storage. The project features authentication, dashboard, and project management capabilities.</summary>
+    <tech_stack>
+        <technology name="React" category="framework" />
+        <technology name="Cloudflare Workers" category="cloud" />
+        <technology name="PostgreSQL" category="database" />
+        <technology name="TypeScript" category="language" />
+        <technology name="Vite" category="tool" />
+    </tech_stack>
+    <services>
+        <service id="arcwright-frontend" name="Arcwright Frontend" type="frontend" tier="frontend" port="3000">
+            <description>Client-side web application built with React, responsible for user interaction and rendering.</description>
+            <modules>
+                <module id="auth-module" name="Authentication Module" prefix="/auth">
+                    <endpoint method="GET" path="/login" description="Login page" />
+                    <endpoint method="GET" path="/auth/callback" description="Authentication callback" />
+                </module>
+                <module id="dashboard-module" name="Dashboard Module" prefix="/dashboard">
+                    <endpoint method="GET" path="/" description="Dashboard page" />
+                </module>
+                <module id="project-module" name="Project Module" prefix="/project">
+                    <endpoint method="GET" path="/:id" description="Project details page" />
+                </module>
+            </modules>
+            <databases>
+                <database type="postgresql" name="arcwright-db" purpose="User data and project metadata" />
+            </databases>
+        </service>
+        <service id="arcwright-worker" name="Arcwright Worker" type="worker" tier="gateway" port="443">
+            <description>Serverless worker handling authentication, API requests, and database interactions.</description>
+            <modules>
+                <module id="auth-worker-module" name="Authentication Worker Module" prefix="/auth">
+                    <endpoint method="POST" path="/login" description="Handle login requests" />
+                    <endpoint method="GET" path="/auth/callback" description="Handle authentication callbacks" />
+                </module>
+                <module id="api-worker-module" name="API Worker Module" prefix="/api">
+                    <endpoint method="GET" path="/projects" description="Retrieve project list" />
+                    <endpoint method="GET" path="/project/:id" description="Retrieve project details" />
+                </module>
+            </modules>
+            <databases>
+                <database type="postgresql" name="arcwright-db" purpose="User data and project metadata" />
+            </databases>
+        </service>
+        <service id="postgresql-db" name="PostgreSQL Database" type="database" tier="data" port="5432">
+            <description>Relational database storing user data and project metadata.</description>
+        </service>
+    </services>
+    <connections>
+        <connection from="arcwright-frontend" to="arcwright-worker" protocol="http" direction="two-way" label="API requests" description="Frontend sends API requests to worker" />
+        <connection from="arcwright-worker" to="postgresql-db" protocol="postgresql" direction="two-way" label="Database interactions" description="Worker interacts with database for data storage and retrieval" />
+    </connections>
+    <user_flows>
+        <flow id="login-flow" name="Login Flow">
+            <step order="1" service="arcwright-frontend" action="User navigates to login page" />
+            <step order="2" service="arcwright-frontend" action="User submits login credentials" />
+            <step order="3" service="arcwright-worker" action="Worker handles login request and authenticates user" />
+            <step order="4" service="arcwright-frontend" action="User is redirected to dashboard page" />
+        </flow>
+        <flow id="project-view-flow" name="Project View Flow">
+            <step order="1" service="arcwright-frontend" action="User navigates to project details page" />
+            <step order="2" service="arcwright-frontend" action="Frontend sends API request to worker for project details" />
+            <step order="3" service="arcwright-worker" action="Worker retrieves project details from database" />
+            <step order="4" service="arcwright-frontend" action="Frontend renders project details page" />
+        </flow>
+    </user_flows>
+    <issues>
+        <issue type="no_tests" severity="error" title="Missing unit tests" file_path="src/components">No unit tests are present for React components.</issue>
+        <issue type="security_concern" severity="warning" title="Insecure password storage" file_path="workers/src/services/claude-analyzer.ts">Password storage is not properly hashed or encrypted.</issue>
+        <issue type="missing_docs" severity="info" title="Lack of documentation" file_path="src/hooks/useEcosystemGraph.ts">No documentation is present for the useEcosystemGraph hook.</issue>
+    </issues>
+</architecture>
