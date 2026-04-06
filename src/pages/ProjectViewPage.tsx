@@ -130,6 +130,59 @@ export default function ProjectViewPage() {
       });
     });
 
+    // Cross-repo wiring: detect shared databases, services with matching names
+    if (filtered.length > 1) {
+      // Find databases that appear in multiple repos
+      const dbMap: Record<string, string[]> = {}; // db_name → [repo/svc-id, ...]
+      for (const svc of allSvcs) {
+        for (const db of (svc as ParsedService).databases) {
+          const key = `${db.type}:${db.name}`;
+          if (!dbMap[key]) dbMap[key] = [];
+          dbMap[key].push(svc.id);
+        }
+      }
+      // Add cross-repo edges for shared databases
+      for (const [dbKey, svcIds] of Object.entries(dbMap)) {
+        if (svcIds.length <= 1) continue;
+        const repos = new Set(svcIds.map(id => id.split('/')[0]));
+        if (repos.size <= 1) continue;
+        // Connect all services sharing this DB
+        for (let i = 0; i < svcIds.length; i++) {
+          for (let j = i + 1; j < svcIds.length; j++) {
+            if (svcIds[i].split('/')[0] !== svcIds[j].split('/')[0]) {
+              allConns.push({
+                from: svcIds[i], to: svcIds[j],
+                protocol: dbKey.split(':')[0], direction: 'two-way',
+                label: `shared ${dbKey.split(':')[1]}`, description: `Cross-repo: shared ${dbKey} database`,
+              });
+            }
+          }
+        }
+      }
+
+      // Match services with similar names across repos (e.g. "Redis" in repo A and "Redis" in repo B)
+      const nameMap: Record<string, string[]> = {};
+      for (const svc of allSvcs) {
+        const norm = svc.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (!nameMap[norm]) nameMap[norm] = [];
+        nameMap[norm].push(svc.id);
+      }
+      for (const [, ids] of Object.entries(nameMap)) {
+        if (ids.length <= 1) continue;
+        const repos = new Set(ids.map(id => id.split('/')[0]));
+        if (repos.size <= 1) continue;
+        // These are likely the same service used by different repos
+        for (let i = 1; i < ids.length; i++) {
+          if (ids[0].split('/')[0] !== ids[i].split('/')[0]) {
+            allConns.push({
+              from: ids[0], to: ids[i], protocol: 'shared', direction: 'two-way',
+              label: 'same service', description: 'Cross-repo: likely same infrastructure service',
+            });
+          }
+        }
+      }
+    }
+
     // Group by tier
     const tierGroups: Record<string, typeof allSvcs> = {};
     for (const svc of allSvcs) {

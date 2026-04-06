@@ -169,13 +169,14 @@ repos.post('/connect', async (c) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'analyzing')`
   ).bind(repoId, user.tenant_id, body.project_id || null, user.sub, ghRepo.id, ghRepo.full_name, ghRepo.name, ghRepo.default_branch, webhookId, webhookSecret).run();
 
-  // Trigger analysis inline (8b model is fast enough)
-  c.executionCtx.waitUntil(
-    triggerAnalysis(c.env, repoId, user.tenant_id, ghRepo.full_name, ghRepo.default_branch, dbUser.github_token as string)
-      .catch(err => console.error('Background analysis failed:', err))
-  );
-
-  return c.json({ id: repoId, status: 'analyzing' }, 201);
+  // Run analysis inline — waitUntil silently dies on Workers
+  try {
+    await triggerAnalysis(c.env, repoId, user.tenant_id, ghRepo.full_name, ghRepo.default_branch, dbUser.github_token as string);
+    return c.json({ id: repoId, status: 'ready' }, 201);
+  } catch (err) {
+    console.error('Initial analysis failed:', err);
+    return c.json({ id: repoId, status: 'analyzing', note: 'Analysis started — use retry if stuck' }, 201);
+  }
 });
 
 // Retry analysis for a failed repo (runs INLINE to surface errors)
