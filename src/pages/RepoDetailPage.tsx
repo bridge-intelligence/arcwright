@@ -7,8 +7,8 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
-  ArrowLeft, RefreshCw, AlertCircle, CheckCircle2, Loader2, FileCode2,
-  Server, ExternalLink, Workflow, X, Database, Search,
+  ArrowLeft, AlertCircle, CheckCircle2, Loader2, FileCode2,
+  Server, ExternalLink, Workflow, X, Database, Search, RefreshCw, ChevronDown, Zap, Bot,
 } from 'lucide-react';
 import { reposApi, type RepoDetail } from '../services/api';
 import ArchServiceNode, { type ArchNodeData } from '../components/ArchServiceNode';
@@ -103,7 +103,6 @@ export default function RepoDetailPage() {
   const [repo, setRepo] = useState<RepoDetail | null>(null);
   const [xml, setXml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [retrying, setRetrying] = useState(false);
   const [activeTab, setActiveTab] = useState<'graph' | 'flows' | 'issues' | 'xml'>('graph');
   const [selectedService, setSelectedService] = useState<ParsedService | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -123,17 +122,6 @@ export default function RepoDetailPage() {
   }, [id]);
 
   useEffect(() => { loadData(); }, [loadData]);
-
-  const handleRetry = async () => {
-    if (!id) return; setRetrying(true);
-    try {
-      await reposApi.retry(id);
-      const poll = setInterval(async () => {
-        const r = await reposApi.get(id);
-        if (r.status === 'ready' || r.status === 'error') { clearInterval(poll); loadData(); setRetrying(false); }
-      }, 3000);
-    } catch { setRetrying(false); }
-  };
 
   const parsed = useMemo(() => xml ? parseArchXml(xml) : null, [xml]);
 
@@ -316,15 +304,21 @@ export default function RepoDetailPage() {
           )}
 
           <div className="flex items-center gap-2">
+            {/* Source + cost badge */}
             {repo.latest_analysis?.source && (
               <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${
-                repo.latest_analysis.source === 'claude-code' ? 'bg-violet-500/20 text-violet-400 border border-violet-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
-              }`}>{repo.latest_analysis.source === 'claude-code' ? 'Claude Code' : 'CF AI'}</span>
+                repo.latest_analysis.source === 'claude-code' ? 'bg-violet-500/20 text-violet-400 border border-violet-500/30' :
+                repo.latest_analysis.source === 'claude-api' ? 'bg-violet-500/20 text-violet-400 border border-violet-500/30' :
+                'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+              }`}>{repo.latest_analysis.source === 'claude-code' ? 'Claude Code' : repo.latest_analysis.source === 'claude-api' ? 'Claude API' : 'CF AI'}</span>
             )}
+            {repo.latest_analysis?.cost_usd ? <span className="text-[9px] text-zinc-500">${repo.latest_analysis.cost_usd.toFixed(4)}</span> : null}
             {repo.latest_analysis?.commit_sha && <span className="text-[10px] text-zinc-600 font-mono">{repo.latest_analysis.commit_sha.slice(0, 7)}</span>}
-            <button onClick={handleRetry} disabled={retrying} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800 disabled:opacity-50">
-              {retrying ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Re-analyze
-            </button>
+            {parsed?.branch && <span className="text-[10px] text-zinc-600">@{parsed.branch}</span>}
+
+            {/* Analyze dropdown */}
+            <AnalyzeDropdown repoId={id!} repoName={repo.full_name} defaultBranch={parsed?.branch || 'main'} onComplete={loadData} />
+
             <a href={`https://github.com/${repo.full_name}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800">
               <ExternalLink className="w-3 h-3" />
             </a>
@@ -596,4 +590,98 @@ function MethodBadge({ method }: { method: string }) {
     PAGE: 'bg-cyan-500/20 text-cyan-400',
   };
   return <span className={`px-1 py-0.5 rounded font-mono text-[8px] font-bold flex-shrink-0 ${colors[method] || 'bg-zinc-800 text-zinc-400'}`}>{method}</span>;
+}
+
+function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
+  repoId: string; repoName?: string; defaultBranch: string; onComplete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [selectedSource, setSelectedSource] = useState<'cloudflare-ai' | 'claude-api'>('cloudflare-ai');
+  const [branch, setBranch] = useState(defaultBranch);
+  const [result, setResult] = useState<{ cost?: { cost_usd: number; model: string; input_tokens: number; output_tokens: number } } | null>(null);
+
+  const handleAnalyze = async () => {
+    setAnalyzing(true);
+    setResult(null);
+    try {
+      const res = await reposApi.analyze(repoId, selectedSource, branch);
+      setResult(res);
+      onComplete();
+      setTimeout(() => setOpen(false), 2000);
+    } catch (err) {
+      setResult({ cost: undefined });
+      console.error('Analysis failed:', err);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-[11px] font-medium text-white">
+        {analyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+        Analyze
+        <ChevronDown className="w-3 h-3" />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-10 w-72 rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl z-50 p-4 space-y-3">
+          <div className="text-xs font-semibold text-zinc-300">Run Analysis</div>
+
+          {/* Source selector */}
+          <div>
+            <label className="text-[10px] text-zinc-500 mb-1 block">Analysis Engine</label>
+            <div className="flex gap-2">
+              <button onClick={() => setSelectedSource('cloudflare-ai')}
+                className={`flex-1 flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-[10px] font-medium transition-colors ${
+                  selectedSource === 'cloudflare-ai' ? 'border-orange-500/50 bg-orange-500/10 text-orange-400' : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                }`}>
+                <Zap className="w-3 h-3" />
+                <div className="text-left"><div>Fast (CF AI)</div><div className="text-[8px] text-zinc-600">Free · ~40s</div></div>
+              </button>
+              <button onClick={() => setSelectedSource('claude-api')}
+                className={`flex-1 flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-[10px] font-medium transition-colors ${
+                  selectedSource === 'claude-api' ? 'border-violet-500/50 bg-violet-500/10 text-violet-400' : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                }`}>
+                <Bot className="w-3 h-3" />
+                <div className="text-left"><div>Deep (Claude)</div><div className="text-[8px] text-zinc-600">~$0.01 · ~15s</div></div>
+              </button>
+            </div>
+          </div>
+
+          {/* Branch input */}
+          <div>
+            <label className="text-[10px] text-zinc-500 mb-1 block">Branch</label>
+            <input type="text" value={branch} onChange={e => setBranch(e.target.value)}
+              className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800 text-[11px] text-white font-mono focus:outline-none focus:border-zinc-500" />
+          </div>
+
+          {/* Cost estimate */}
+          {selectedSource === 'claude-api' && (
+            <div className="text-[9px] text-zinc-500 bg-zinc-800/50 rounded-lg px-2.5 py-1.5">
+              Estimated cost: ~$0.01 (Haiku 4.5). Reads 20 files, generates detailed XML with modules and flows.
+            </div>
+          )}
+
+          {/* Result */}
+          {result?.cost && (
+            <div className="text-[10px] text-green-400 bg-green-500/10 rounded-lg px-2.5 py-1.5">
+              Done — {result.cost.model} · {result.cost.input_tokens} in / {result.cost.output_tokens} out · ${result.cost.cost_usd.toFixed(4)}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            <button onClick={() => setOpen(false)} className="flex-1 px-3 py-1.5 rounded-lg border border-zinc-700 text-[11px] text-zinc-400 hover:bg-zinc-800">Cancel</button>
+            <button onClick={handleAnalyze} disabled={analyzing || !branch.trim()}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[11px] font-medium text-white">
+              {analyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+              {analyzing ? 'Analyzing...' : 'Run'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
