@@ -187,11 +187,17 @@ export default function ProjectViewPage() {
     if (arch) navigate(`/repo/${arch.repoId}`);
   }, [repoArchs, navigate]);
 
+  const [showDashboard, setShowDashboard] = useState(true);
+
   // Aggregate stats
   const totalServices = repoArchs.reduce((s, r) => s + r.services.length, 0);
   const totalConnections = repoArchs.reduce((s, r) => s + r.connections.length, 0);
   const totalIssues = repoArchs.reduce((s, r) => s + r.issues.length, 0);
+  const totalEndpoints = repoArchs.reduce((s, r) => s + r.services.reduce((es, svc) => es + svc.endpoints.length + svc.modules.reduce((ms, m) => ms + m.endpoints.length, 0), 0), 0);
   const allTech = [...new Set(repoArchs.flatMap(r => r.techStack.map(t => t.name)))];
+  const serviceTypes = repoArchs.flatMap(r => r.services.map(s => s.type)).reduce((acc, t) => { acc[t] = (acc[t] || 0) + 1; return acc; }, {} as Record<string, number>);
+  const errorIssues = repoArchs.reduce((s, r) => s + r.issues.filter(i => i.severity === 'error').length, 0);
+  const warningIssues = repoArchs.reduce((s, r) => s + r.issues.filter(i => i.severity === 'warning').length, 0);
 
   if (loading) return <div className="min-h-screen bg-zinc-950 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-zinc-500" /></div>;
   if (!project) return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-sm text-red-400">Project not found</div>;
@@ -216,6 +222,7 @@ export default function ProjectViewPage() {
             <div className="text-center"><div className="text-sm font-bold text-purple-400">{repoArchs.length}</div><div className="text-[8px] text-zinc-500 uppercase">Repos</div></div>
           </div>
 
+          <button onClick={() => setShowDashboard(p => !p)} className={`px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-colors ${showDashboard ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300 border border-zinc-800'}`}>Dashboard</button>
           <button onClick={loadData} className="p-2 rounded-lg border border-zinc-800 hover:bg-zinc-800"><RefreshCw className="w-3.5 h-3.5 text-zinc-400" /></button>
         </div>
       </nav>
@@ -258,7 +265,54 @@ export default function ProjectViewPage() {
       </div>
 
       {/* Graph */}
-      <div className="flex-1 h-[calc(100vh-110px)]">
+      {/* Ecosystem Dashboard */}
+      {showDashboard && repoArchs.length > 0 && (
+        <div className="border-b border-zinc-800/50 bg-zinc-900/20">
+          <div className="max-w-[1600px] mx-auto px-4 py-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+              {/* Per-repo breakdown */}
+              {repoArchs.map((arch, i) => (
+                <div key={arch.repoId} className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3">
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: repoColors[i % repoColors.length] }} />
+                    <span className="text-[11px] font-medium truncate">{arch.repoName}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 text-center">
+                    <div><div className="text-sm font-bold text-zinc-200">{arch.services.length}</div><div className="text-[7px] text-zinc-600">SVC</div></div>
+                    <div><div className="text-sm font-bold text-zinc-200">{arch.connections.length}</div><div className="text-[7px] text-zinc-600">CONN</div></div>
+                    <div><div className="text-sm font-bold text-zinc-200">{arch.issues.length}</div><div className="text-[7px] text-zinc-600">ISSUES</div></div>
+                  </div>
+                </div>
+              ))}
+              {/* Service types */}
+              <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3">
+                <div className="text-[9px] text-zinc-500 uppercase tracking-wider mb-2">Service Types</div>
+                <div className="space-y-1">
+                  {Object.entries(serviceTypes).sort(([,a],[,b]) => b - a).slice(0, 5).map(([type, count]) => (
+                    <div key={type} className="flex items-center justify-between text-[10px]">
+                      <span className="text-zinc-400">{type}</span>
+                      <span className="text-zinc-300 font-medium">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Issue summary */}
+              <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3">
+                <div className="text-[9px] text-zinc-500 uppercase tracking-wider mb-2">Issues</div>
+                <div className="space-y-1">
+                  {errorIssues > 0 && <div className="flex items-center justify-between text-[10px]"><span className="text-red-400">Errors</span><span className="text-red-400 font-bold">{errorIssues}</span></div>}
+                  {warningIssues > 0 && <div className="flex items-center justify-between text-[10px]"><span className="text-yellow-400">Warnings</span><span className="text-yellow-400 font-bold">{warningIssues}</span></div>}
+                  <div className="flex items-center justify-between text-[10px]"><span className="text-zinc-400">Total</span><span className="text-zinc-300 font-bold">{totalIssues}</span></div>
+                  <div className="flex items-center justify-between text-[10px]"><span className="text-zinc-400">Endpoints</span><span className="text-zinc-300 font-bold">{totalEndpoints}</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Graph */}
+      <div className={`flex-1 ${showDashboard && repoArchs.length > 0 ? 'h-[calc(100vh-250px)]' : 'h-[calc(100vh-110px)]'}`}>
         {nodes.length > 0 ? (
           <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
             onNodeClick={onNodeClick} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.15 }}

@@ -386,8 +386,8 @@ async function runAnalysis(env: Env, analysisId: string, repoId: string, tenantI
     depth: f.path.split('/').length,
   })).sort((a, b) => a.priority - b.priority || a.depth - b.depth);
 
-  // 3. Fetch content of key files (max 5 — keep fast and under limits)
-  const filesToAnalyze = scored.slice(0, 5);
+  // 3. Fetch content of key files (max 8 — fp8 model handles this in ~40s)
+  const filesToAnalyze = scored.slice(0, 8);
   const fileContents: Array<{ path: string; content: string }> = [];
 
   for (const file of filesToAnalyze) {
@@ -422,48 +422,46 @@ async function runAnalysis(env: Env, analysisId: string, repoId: string, tenantI
     .map(f => `--- ${f.path} ---\n${f.content.slice(0, 2000)}`)
     .join('\n\n');
 
-  const prompt = `You are analyzing a GitHub repository to produce a DETAILED architecture document. Be thorough — list EVERY service, database, API endpoint, queue, external integration, and data flow you can identify from the file tree and source code.
+  const prompt = `Analyze this repository and produce a DETAILED architecture XML. Identify EVERY service, module, database, queue, external integration, and data flow from the file tree and source code.
 
-Repository: ${fullName} (branch: ${branch})
+Repo: ${fullName} (branch: ${branch})
 
-FILE TREE (every file in the repo):
+FILE TREE:
 ${fileTree}
 
-SOURCE FILES:
+SOURCE:
 ${fileSummaries}
 
-Instructions:
-1. List ALL services/modules (APIs, workers, frontends, databases, caches, queues, external services)
-2. For each service, include its port, tech stack, and what it does
-3. List ALL connections — how services talk to each other (HTTP, gRPC, Kafka, Redis, database, WebSocket)
-4. Include the database name/type for each DB connection
-5. Flag issues: dead code, missing tests, circular deps, no error handling, security concerns
+Rules:
+- List ALL services: APIs, workers, frontends, databases, caches, queues, external services
+- Group endpoints into modules (e.g. auth, users, billing are modules of the API service)
+- Include port numbers from config files
+- List ALL connections with protocols and what data flows
+- Identify at least 2 user flows (e.g. login, data processing)
+- Flag issues: no tests, dead code, security, missing docs
 
-Output ONLY this XML (no markdown fences, no commentary):
+Output ONLY valid XML (no markdown, no commentary):
 <architecture repo="${fullName}" branch="${branch}" analyzed_at="${new Date().toISOString()}">
-<summary>2-3 sentence description of what this project does</summary>
-<tech_stack>
-<technology name="NAME" category="language|framework|database|messaging|cache|tool|cloud" />
-</tech_stack>
+<summary>2-3 sentences describing the project</summary>
+<tech_stack><technology name="NAME" category="language|framework|database|messaging|cache|tool|cloud" /></tech_stack>
 <services>
-<service id="kebab-id" name="Human Name" type="api|worker|frontend|library|database|cache|queue" tier="frontend|gateway|business|data|infrastructure">
-<description>What this service does, its port, key responsibilities</description>
-<endpoints>
-<endpoint method="GET|POST|PUT|DELETE" path="/api/..." description="what it does" />
-</endpoints>
-<databases>
-<database type="postgresql|redis|neo4j|mongodb" name="db_name" purpose="what data" />
-</databases>
+<service id="kebab-id" name="Name" type="api|worker|frontend|library|database|cache|queue|external_service" tier="frontend|gateway|business|data|infrastructure" port="NUMBER">
+<description>What it does</description>
+<modules>
+<module id="mod-id" name="Module Name" prefix="/route-prefix">
+<endpoint method="GET|POST|PUT|DELETE" path="/path" description="what" />
+</module>
+</modules>
+<databases><database type="postgresql|redis|neo4j" name="db_name" purpose="what data" /></databases>
 </service>
 </services>
-<connections>
-<connection from="service-id" to="service-id" protocol="http|kafka|redis|grpc|websocket|jdbc" direction="one-way|two-way" label="short label" description="what data flows" />
-</connections>
-<issues>
-<issue type="dangling_code|circular_dependency|missing_docs|dead_import|no_tests|security_concern|no_error_handling" severity="info|warning|error" title="Short title" file_path="path/to/file">
-Description of the issue and why it matters
-</issue>
-</issues>
+<connections><connection from="svc-id" to="svc-id" protocol="http|kafka|redis|grpc|prisma|bolt" direction="one-way|two-way" label="short" description="what flows" /></connections>
+<user_flows>
+<flow id="flow-id" name="Flow Name">
+<step order="1" service="svc-id" action="What happens" />
+</flow>
+</user_flows>
+<issues><issue type="no_tests|dangling_code|security_concern|missing_docs" severity="info|warning|error" title="Title" file_path="path">Description</issue></issues>
 </architecture>`;
 
   // 5. Call Workers AI (fp8 quantized for speed)

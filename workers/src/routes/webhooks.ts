@@ -19,6 +19,7 @@ webhooks.post('/github', async (c) => {
     ref: string;
     after: string;
     repository: { full_name: string };
+    commits?: Array<{ added: string[]; modified: string[]; removed: string[] }>;
   };
   try {
     payload = JSON.parse(body);
@@ -29,6 +30,18 @@ webhooks.post('/github', async (c) => {
   const fullName = payload.repository.full_name;
   const branch = payload.ref.replace('refs/heads/', '');
   const commitSha = payload.after;
+
+  // Diff-based: check if any architectural files changed
+  const archPatterns = /\.(ts|tsx|js|jsx|kt|java|py|go|rs|yaml|yml|json|toml|xml|gradle|dockerfile)$/i;
+  const ignorePatterns = /\.(md|txt|png|jpg|jpeg|gif|svg|ico|lock|test\.|spec\.|__test__|__spec__)|(\.github\/|docs\/|\.vscode\/|\.idea\/)/i;
+
+  if (payload.commits && payload.commits.length > 0) {
+    const allChanged = payload.commits.flatMap(c => [...(c.added || []), ...(c.modified || []), ...(c.removed || [])]);
+    const archFiles = allChanged.filter(f => archPatterns.test(f) && !ignorePatterns.test(f));
+    if (archFiles.length === 0) {
+      return c.json({ ignored: true, reason: 'no architectural files changed', files: allChanged.length });
+    }
+  }
 
   // Find the repo in our DB
   const repo = await c.env.DB.prepare(
