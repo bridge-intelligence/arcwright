@@ -139,6 +139,10 @@ export const reposApi = {
     method: 'PATCH',
     body: JSON.stringify({ enabled }),
   }),
+  saveLayout: (id: string, positions: Record<string, { x: number; y: number }>) => request<{ ok: boolean }>(`/repos/${id}/layout`, {
+    method: 'PATCH',
+    body: JSON.stringify({ positions }),
+  }),
   disconnect: (id: string) => request<{ ok: boolean }>(`/repos/${id}`, { method: 'DELETE' }),
   listAvailable: () => request<{
     username: string;

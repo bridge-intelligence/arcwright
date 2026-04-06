@@ -328,6 +328,19 @@ repos.patch('/:id/auto-sync', async (c) => {
   return c.json({ ok: true, auto_sync: body.enabled });
 });
 
+// Save node layout positions
+repos.patch('/:id/layout', async (c) => {
+  const user = c.get('user');
+  const repoId = c.req.param('id');
+  const body = await c.req.json<{ positions: Record<string, { x: number; y: number }> }>();
+
+  await c.env.DB.prepare(
+    `UPDATE repos SET layout_data = ?, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`
+  ).bind(JSON.stringify(body.positions), repoId, user.tenant_id).run();
+
+  return c.json({ ok: true });
+});
+
 // Disconnect repo
 repos.delete('/:id', async (c) => {
   const user = c.get('user');

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ReactFlow, Background, Controls, MiniMap, BackgroundVariant, MarkerType,
@@ -137,11 +137,10 @@ export default function RepoDetailPage() {
 
   const parsed = useMemo(() => xml ? parseArchXml(xml) : null, [xml]);
 
-  // Build graph nodes/edges
+  // Build graph nodes/edges with smart layout
   const { graphNodes, graphEdges } = useMemo(() => {
     if (!parsed || parsed.services.length === 0) return { graphNodes: [] as Node[], graphEdges: [] as Edge[] };
 
-    const tiers = [...new Set(parsed.services.map(s => s.tier))];
     const filteredSvcs = parsed.services.filter(s => {
       if (activeTiers.size > 0 && !activeTiers.has(s.tier)) return false;
       if (searchQuery && !s.name.toLowerCase().includes(searchQuery.toLowerCase()) && !s.type.toLowerCase().includes(searchQuery.toLowerCase())) return false;
@@ -149,21 +148,76 @@ export default function RepoDetailPage() {
     });
     const filteredIds = new Set(filteredSvcs.map(s => s.id));
 
+    // --- Smart layout: tier ordering + connection-aware horizontal placement ---
+    const tierOrder = ['frontend', 'gateway', 'business', 'data', 'infrastructure'];
     const tierGroups: Record<string, ParsedService[]> = {};
     for (const svc of filteredSvcs) {
       const t = svc.tier; if (!tierGroups[t]) tierGroups[t] = [];
       tierGroups[t].push(svc);
     }
 
-    const orderedTiers = tiers.filter(t => tierGroups[t]);
+    // Sort tiers by defined order, unknowns at end
+    const orderedTiers = Object.keys(tierGroups).sort((a, b) => {
+      const ai = tierOrder.indexOf(a); const bi = tierOrder.indexOf(b);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
+
+    // Build adjacency for horizontal ordering (connected nodes should be near each other)
+    const adjCount: Record<string, Record<string, number>> = {};
+    for (const conn of parsed.connections) {
+      if (!filteredIds.has(conn.from) || !filteredIds.has(conn.to)) continue;
+      if (!adjCount[conn.from]) adjCount[conn.from] = {};
+      if (!adjCount[conn.to]) adjCount[conn.to] = {};
+      adjCount[conn.from][conn.to] = (adjCount[conn.from][conn.to] || 0) + 1;
+      adjCount[conn.to][conn.from] = (adjCount[conn.to][conn.from] || 0) + 1;
+    }
+
+    // Within each tier, sort services to minimize crossings with adjacent tiers
+    const tierPositions: Record<string, number> = {}; // svc.id → horizontal slot
+    orderedTiers.forEach((tier, ti) => {
+      const svcs = tierGroups[tier];
+      if (ti === 0) {
+        // First tier: sort by connection count (most connected in center)
+        svcs.sort((a, b) => {
+          const ac = parsed.connections.filter(c => c.from === a.id || c.to === a.id).length;
+          const bc = parsed.connections.filter(c => c.from === b.id || c.to === b.id).length;
+          return bc - ac;
+        });
+        // Place most connected in center
+        const reordered: ParsedService[] = [];
+        for (let i = 0; i < svcs.length; i++) {
+          if (i % 2 === 0) reordered.push(svcs[i]);
+          else reordered.unshift(svcs[i]);
+        }
+        reordered.forEach((s, si) => { tierPositions[s.id] = si; });
+        tierGroups[tier] = reordered;
+      } else {
+        // Subsequent tiers: order by average position of connected nodes in previous tiers
+        svcs.sort((a, b) => {
+          const aConns = Object.keys(adjCount[a.id] || {}).filter(id => tierPositions[id] !== undefined);
+          const bConns = Object.keys(adjCount[b.id] || {}).filter(id => tierPositions[id] !== undefined);
+          const aAvg = aConns.length > 0 ? aConns.reduce((s, id) => s + tierPositions[id], 0) / aConns.length : 999;
+          const bAvg = bConns.length > 0 ? bConns.reduce((s, id) => s + tierPositions[id], 0) / bConns.length : 999;
+          return aAvg - bAvg;
+        });
+        svcs.forEach((s, si) => { tierPositions[s.id] = si; });
+      }
+    });
+
+    const NODE_W = 240;
+    const NODE_H = 220;
     const nodes: Node[] = [];
     orderedTiers.forEach((tier, ti) => {
-      tierGroups[tier].forEach((svc, si) => {
+      const svcs = tierGroups[tier];
+      const tierWidth = svcs.length * NODE_W;
+      const startX = Math.max(60, (orderedTiers.reduce((max, t) => Math.max(max, (tierGroups[t]?.length || 0)), 0) * NODE_W - tierWidth) / 2);
+
+      svcs.forEach((svc, si) => {
         const connCount = parsed.connections.filter(c => c.from === svc.id || c.to === svc.id).length;
         nodes.push({
           id: svc.id,
           type: 'archServiceNode',
-          position: { x: 60 + si * 220, y: 50 + ti * 200 },
+          position: { x: startX + si * NODE_W, y: 50 + ti * NODE_H },
           data: {
             serviceId: svc.id, label: svc.name, type: svc.type, tier: svc.tier,
             port: svc.port, description: svc.description,
@@ -193,8 +247,34 @@ export default function RepoDetailPage() {
   const [nodes, setNodes, onNodesChange] = useNodesState(graphNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(graphEdges);
 
-  // Sync when graph data changes
-  useEffect(() => { setNodes(graphNodes); setEdges(graphEdges); }, [graphNodes, graphEdges, setNodes, setEdges]);
+  // Sync when graph data changes (apply saved positions if available)
+  useEffect(() => {
+    if (!repo) { setNodes(graphNodes); setEdges(graphEdges); return; }
+    // Load saved positions
+    let savedPositions: Record<string, { x: number; y: number }> | null = null;
+    try {
+      const layoutData = (repo as unknown as Record<string, unknown>).layout_data;
+      if (layoutData && typeof layoutData === 'string') savedPositions = JSON.parse(layoutData);
+    } catch {}
+
+    const positioned = savedPositions
+      ? graphNodes.map(n => savedPositions![n.id] ? { ...n, position: savedPositions![n.id] } : n)
+      : graphNodes;
+    setNodes(positioned);
+    setEdges(graphEdges);
+  }, [graphNodes, graphEdges, setNodes, setEdges, repo]);
+
+  // Debounced position save on drag
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onNodeDragStop = useCallback(() => {
+    if (!id) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      const positions: Record<string, { x: number; y: number }> = {};
+      nodes.forEach(n => { positions[n.id] = n.position; });
+      reposApi.saveLayout(id, positions).catch(() => {});
+    }, 1000);
+  }, [id, nodes]);
 
   const onNodeClick: NodeMouseHandler = useCallback((_event, node) => {
     const svc = parsed?.services.find(s => s.id === node.id);
@@ -299,7 +379,7 @@ export default function RepoDetailPage() {
           <div className="h-[calc(100vh-110px)]">
             {nodes.length > 0 ? (
               <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
-                onNodeClick={onNodeClick} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.2 }}
+                onNodeClick={onNodeClick} onNodeDragStop={onNodeDragStop} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.2 }}
                 minZoom={0.2} maxZoom={2} defaultEdgeOptions={{ type: 'smoothstep' }} proOptions={{ hideAttribution: true }}>
                 <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#27272a" />
                 <Controls showInteractive={false} />
