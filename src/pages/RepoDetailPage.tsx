@@ -6,8 +6,10 @@ import {
   Controls,
   MiniMap,
   BackgroundVariant,
+  MarkerType,
   type Node,
   type Edge,
+  type NodeMouseHandler,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
@@ -21,56 +23,75 @@ import {
   Link2,
   ExternalLink,
   GitBranch,
+  X,
+  Database,
 } from 'lucide-react';
 import { reposApi, type RepoDetail } from '../services/api';
 
+// --- Types ---
+interface ParsedService {
+  id: string; name: string; type: string; tier: string; description: string;
+  endpoints: Array<{ method: string; path: string; description: string }>;
+  databases: Array<{ type: string; name: string; purpose: string }>;
+}
+interface ParsedConnection {
+  from: string; to: string; protocol: string; direction: string; label: string; description: string;
+}
+interface ParsedIssue {
+  type: string; severity: string; title: string; description: string; filePath?: string;
+}
 interface ParsedArch {
   summary: string;
   techStack: Array<{ name: string; category: string }>;
-  services: Array<{ id: string; name: string; type: string; tier: string; description: string }>;
-  connections: Array<{ from: string; to: string; protocol: string; direction: string; description: string }>;
-  issues: Array<{ type: string; severity: string; title: string; description: string; filePath?: string }>;
+  services: ParsedService[];
+  connections: ParsedConnection[];
+  issues: ParsedIssue[];
 }
 
+// --- XML Parser ---
 function parseArchXml(xml: string): ParsedArch {
   const result: ParsedArch = { summary: '', techStack: [], services: [], connections: [], issues: [] };
 
   const summaryMatch = xml.match(/<summary>([\s\S]*?)<\/summary>/);
   if (summaryMatch) result.summary = summaryMatch[1].trim();
 
-  const techRegex = /<technology\s+name="([^"]*?)"\s+category="([^"]*?)"\s*\/?\s*>/g;
   let m;
-  while ((m = techRegex.exec(xml)) !== null) {
-    result.techStack.push({ name: m[1], category: m[2] });
-  }
+  const techRegex = /<technology\s+name="([^"]*?)"\s+category="([^"]*?)"\s*\/?\s*>/g;
+  while ((m = techRegex.exec(xml)) !== null) result.techStack.push({ name: m[1], category: m[2] });
 
   const svcRegex = /<service\s+id="([^"]*?)"\s+name="([^"]*?)"\s+type="([^"]*?)"\s+tier="([^"]*?)"[^>]*>([\s\S]*?)<\/service>/g;
   while ((m = svcRegex.exec(xml)) !== null) {
-    const descMatch = m[5].match(/<description>([\s\S]*?)<\/description>/);
-    result.services.push({ id: m[1], name: m[2], type: m[3], tier: m[4], description: descMatch?.[1]?.trim() || '' });
+    const body = m[5];
+    const descMatch = body.match(/<description>([\s\S]*?)<\/description>/);
+    const endpoints: ParsedService['endpoints'] = [];
+    const epRegex = /<endpoint\s+method="([^"]*?)"\s+path="([^"]*?)"\s+description="([^"]*?)"\s*\/?\s*>/g;
+    let ep;
+    while ((ep = epRegex.exec(body)) !== null) endpoints.push({ method: ep[1], path: ep[2], description: ep[3] });
+    const databases: ParsedService['databases'] = [];
+    const dbRegex = /<database\s+type="([^"]*?)"\s+name="([^"]*?)"\s+purpose="([^"]*?)"\s*\/?\s*>/g;
+    let db;
+    while ((db = dbRegex.exec(body)) !== null) databases.push({ type: db[1], name: db[2], purpose: db[3] });
+    result.services.push({ id: m[1], name: m[2], type: m[3], tier: m[4], description: descMatch?.[1]?.trim() || '', endpoints, databases });
   }
 
-  const connRegex = /<connection\s+from="([^"]*?)"\s+to="([^"]*?)"\s+protocol="([^"]*?)"\s+direction="([^"]*?)"\s+description="([^"]*?)"\s*\/?\s*>/g;
-  while ((m = connRegex.exec(xml)) !== null) {
-    result.connections.push({ from: m[1], to: m[2], protocol: m[3], direction: m[4], description: m[5] });
-  }
+  const connRegex = /<connection\s+from="([^"]*?)"\s+to="([^"]*?)"\s+protocol="([^"]*?)"\s+direction="([^"]*?)"\s+(?:label="([^"]*?)"\s+)?description="([^"]*?)"\s*\/?\s*>/g;
+  while ((m = connRegex.exec(xml)) !== null) result.connections.push({ from: m[1], to: m[2], protocol: m[3], direction: m[4], label: m[5] || m[3], description: m[6] });
 
   const issueRegex = /<issue\s+type="([^"]*?)"\s+severity="([^"]*?)"\s+title="([^"]*?)"(?:\s+file_path="([^"]*?)")?[^>]*>([\s\S]*?)<\/issue>/g;
-  while ((m = issueRegex.exec(xml)) !== null) {
-    result.issues.push({ type: m[1], severity: m[2], title: m[3], description: m[5]?.trim() || '', filePath: m[4] });
-  }
+  while ((m = issueRegex.exec(xml)) !== null) result.issues.push({ type: m[1], severity: m[2], title: m[3], description: m[5]?.trim() || '', filePath: m[4] });
 
   return result;
 }
 
+// --- Colors ---
 const tierColors: Record<string, string> = {
-  frontend: '#06b6d4', gateway: '#3b82f6', business: '#a855f7', infrastructure: '#6b7280',
-  api: '#3b82f6', worker: '#f97316', library: '#8b5cf6', database: '#22c55e',
+  frontend: '#06b6d4', gateway: '#3b82f6', business: '#a855f7', data: '#22c55e', infrastructure: '#6b7280',
+  api: '#3b82f6', worker: '#f97316', library: '#8b5cf6', database: '#22c55e', cache: '#ef4444', queue: '#eab308',
 };
-
-const severityColors: Record<string, string> = {
-  error: '#ef4444', warning: '#eab308', info: '#3b82f6',
+const protocolColors: Record<string, string> = {
+  http: '#3b82f6', grpc: '#a855f7', kafka: '#22c55e', redis: '#ef4444', websocket: '#06b6d4', jdbc: '#6b7280',
 };
+const severityColors: Record<string, string> = { error: '#ef4444', warning: '#eab308', info: '#3b82f6' };
 
 export default function RepoDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -80,6 +101,7 @@ export default function RepoDetailPage() {
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
   const [activeTab, setActiveTab] = useState<'graph' | 'issues' | 'xml'>('graph');
+  const [selectedService, setSelectedService] = useState<ParsedService | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
@@ -106,25 +128,20 @@ export default function RepoDetailPage() {
     setRetrying(true);
     try {
       await reposApi.retry(id);
-      // Poll for completion
       const poll = setInterval(async () => {
         const r = await reposApi.get(id);
-        if (r.status === 'ready' || r.status === 'error') {
-          clearInterval(poll);
-          loadData();
-          setRetrying(false);
-        }
+        if (r.status === 'ready' || r.status === 'error') { clearInterval(poll); loadData(); setRetrying(false); }
       }, 3000);
     } catch { setRetrying(false); }
   };
 
   const parsed = useMemo(() => xml ? parseArchXml(xml) : null, [xml]);
 
-  // Build ReactFlow nodes/edges from parsed architecture
+  // Build graph
   const { nodes, edges } = useMemo(() => {
     if (!parsed || parsed.services.length === 0) return { nodes: [] as Node[], edges: [] as Edge[] };
 
-    const tierGroups: Record<string, typeof parsed.services> = {};
+    const tierGroups: Record<string, ParsedService[]> = {};
     for (const svc of parsed.services) {
       const t = svc.tier || svc.type || 'other';
       if (!tierGroups[t]) tierGroups[t] = [];
@@ -135,26 +152,23 @@ export default function RepoDetailPage() {
     const nodes: Node[] = [];
 
     tiers.forEach((tier, ti) => {
-      const svcs = tierGroups[tier];
-      svcs.forEach((svc, si) => {
+      tierGroups[tier].forEach((svc, si) => {
+        const color = tierColors[svc.tier] || tierColors[svc.type] || '#52525b';
+
         nodes.push({
           id: svc.id || svc.name,
-          position: { x: 100 + si * 260, y: 80 + ti * 200 },
-          data: {
-            label: svc.name,
-            type: svc.type,
-            tier: svc.tier,
-            description: svc.description,
-          },
+          position: { x: 80 + si * 280, y: 60 + ti * 220 },
+          data: { label: svc.name, service: svc },
           style: {
-            background: `${tierColors[svc.tier] || tierColors[svc.type] || '#52525b'}15`,
-            border: `1px solid ${tierColors[svc.tier] || tierColors[svc.type] || '#52525b'}50`,
-            borderRadius: '12px',
-            padding: '12px 16px',
+            background: `linear-gradient(135deg, ${color}12, ${color}06)`,
+            border: `1.5px solid ${color}40`,
+            borderRadius: '14px',
+            padding: '14px 18px',
             color: '#fff',
-            fontSize: '12px',
+            fontSize: '13px',
             fontWeight: 600,
-            minWidth: '140px',
+            minWidth: '180px',
+            cursor: 'pointer',
           },
         });
       });
@@ -164,37 +178,35 @@ export default function RepoDetailPage() {
       id: `e-${i}`,
       source: conn.from,
       target: conn.to,
-      label: conn.protocol,
+      label: conn.label || conn.protocol,
       type: 'smoothstep',
-      animated: conn.protocol === 'kafka' || conn.protocol === 'events',
-      style: { stroke: tierColors[conn.protocol] || '#52525b', strokeWidth: 1.5 },
-      labelStyle: { fill: '#a1a1aa', fontSize: 10 },
+      animated: ['kafka', 'redis', 'websocket', 'events'].includes(conn.protocol.toLowerCase()),
+      markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: protocolColors[conn.protocol.toLowerCase()] || '#52525b' },
+      style: { stroke: protocolColors[conn.protocol.toLowerCase()] || '#52525b', strokeWidth: 2 },
+      labelStyle: { fill: '#a1a1aa', fontSize: 10, fontWeight: 500 },
+      labelBgStyle: { fill: '#18181b', fillOpacity: 0.9 },
+      labelBgPadding: [6, 4] as [number, number],
+      labelBgBorderRadius: 4,
     }));
 
     return { nodes, edges };
   }, [parsed]);
 
-  if (loading) return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-      <Loader2 className="w-5 h-5 animate-spin text-zinc-500" />
-    </div>
-  );
+  const onNodeClick: NodeMouseHandler = useCallback((_event, node) => {
+    const svc = (node.data as { service?: ParsedService }).service;
+    if (svc) setSelectedService(svc);
+  }, []);
 
-  if (error || !repo) return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-sm text-red-400">
-      {error || 'Repo not found'}
-    </div>
-  );
+  if (loading) return <div className="min-h-screen bg-zinc-950 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-zinc-500" /></div>;
+  if (error || !repo) return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-sm text-red-400">{error || 'Not found'}</div>;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white flex flex-col">
       {/* Nav */}
       <nav className="border-b border-zinc-800/50 bg-zinc-950/80 backdrop-blur-xl sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-6 h-12 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/dashboard')} className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white">
-              <ArrowLeft className="w-3.5 h-3.5" /> Dashboard
-            </button>
+            <button onClick={() => navigate('/dashboard')} className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white"><ArrowLeft className="w-3.5 h-3.5" /> Dashboard</button>
             <span className="text-zinc-700">/</span>
             <span className="text-sm font-semibold">{repo.full_name}</span>
             {repo.status === 'ready' && <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />}
@@ -202,41 +214,29 @@ export default function RepoDetailPage() {
             {repo.status === 'analyzing' && <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />}
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={handleRetry} disabled={retrying}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50">
+            <button onClick={handleRetry} disabled={retrying} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50">
               {retrying ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Re-analyze
             </button>
-            <a href={`https://github.com/${repo.full_name}`} target="_blank" rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-800">
+            <a href={`https://github.com/${repo.full_name}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-800">
               <ExternalLink className="w-3 h-3" /> GitHub
             </a>
           </div>
         </div>
       </nav>
 
-      {/* Summary bar */}
+      {/* Summary */}
       {parsed && (
         <div className="border-b border-zinc-800/50 bg-zinc-900/30">
-          <div className="max-w-7xl mx-auto px-6 py-4">
-            <p className="text-sm text-zinc-300 mb-3">{parsed.summary}</p>
-            <div className="flex flex-wrap gap-4">
-              <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-                <Server className="w-3.5 h-3.5" /> {parsed.services.length} services
-              </div>
-              <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-                <Link2 className="w-3.5 h-3.5" /> {parsed.connections.length} connections
-              </div>
-              <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-                <AlertCircle className="w-3.5 h-3.5" /> {parsed.issues.length} issues
-              </div>
-              <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-                <GitBranch className="w-3.5 h-3.5" /> arcwright branch
-              </div>
-              <div className="flex flex-wrap gap-1.5 ml-auto">
-                {parsed.techStack.map(t => (
-                  <span key={t.name} className="px-2 py-0.5 rounded-full bg-zinc-800 text-[10px] text-zinc-400 border border-zinc-700/50">
-                    {t.name}
-                  </span>
+          <div className="max-w-7xl mx-auto px-6 py-3">
+            <p className="text-xs text-zinc-300 mb-2">{parsed.summary}</p>
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="flex items-center gap-1 text-[11px] text-zinc-400"><Server className="w-3 h-3" /> {parsed.services.length} services</span>
+              <span className="flex items-center gap-1 text-[11px] text-zinc-400"><Link2 className="w-3 h-3" /> {parsed.connections.length} connections</span>
+              <span className="flex items-center gap-1 text-[11px] text-zinc-400"><AlertCircle className="w-3 h-3" /> {parsed.issues.length} issues</span>
+              <span className="flex items-center gap-1 text-[11px] text-zinc-400"><GitBranch className="w-3 h-3" /> arcwright branch</span>
+              <div className="flex flex-wrap gap-1 ml-auto">
+                {parsed.techStack.slice(0, 10).map(t => (
+                  <span key={t.name} className="px-1.5 py-0.5 rounded-full bg-zinc-800 text-[9px] text-zinc-400 border border-zinc-700/50">{t.name}</span>
                 ))}
               </div>
             </div>
@@ -246,47 +246,101 @@ export default function RepoDetailPage() {
 
       {/* Tabs */}
       <div className="border-b border-zinc-800/50">
-        <div className="max-w-7xl mx-auto px-6 flex gap-0">
+        <div className="max-w-7xl mx-auto px-6 flex">
           {([['graph', 'Architecture', Server], ['issues', 'Issues', AlertCircle], ['xml', 'Raw XML', FileCode2]] as const).map(([key, label, Icon]) => (
-            <button key={key} onClick={() => setActiveTab(key)}
-              className={`flex items-center gap-1.5 px-4 py-3 text-xs font-medium border-b-2 transition-colors ${
-                activeTab === key ? 'border-blue-500 text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300'
-              }`}>
+            <button key={key} onClick={() => setActiveTab(key)} className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 ${
+              activeTab === key ? 'border-blue-500 text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}>
               <Icon className="w-3.5 h-3.5" /> {label}
-              {key === 'issues' && parsed && parsed.issues.length > 0 && (
-                <span className="ml-1 px-1.5 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 text-[10px]">{parsed.issues.length}</span>
-              )}
+              {key === 'issues' && parsed && parsed.issues.length > 0 && <span className="ml-1 px-1.5 rounded-full bg-yellow-500/20 text-yellow-400 text-[10px]">{parsed.issues.length}</span>}
             </button>
           ))}
         </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1">
+      <div className="flex-1 relative">
         {activeTab === 'graph' && (
-          <div className="h-[calc(100vh-220px)]">
+          <div className="h-[calc(100vh-200px)]">
             {nodes.length > 0 ? (
-              <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                fitView
-                fitViewOptions={{ padding: 0.3 }}
-                minZoom={0.3}
-                maxZoom={2}
-                defaultEdgeOptions={{ type: 'smoothstep' }}
-                proOptions={{ hideAttribution: true }}
-              >
+              <ReactFlow nodes={nodes} edges={edges} onNodeClick={onNodeClick} fitView fitViewOptions={{ padding: 0.3 }} minZoom={0.3} maxZoom={2}
+                defaultEdgeOptions={{ type: 'smoothstep' }} proOptions={{ hideAttribution: true }}>
                 <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#27272a" />
                 <Controls showInteractive={false} />
-                <MiniMap
-                  nodeColor="#3b82f6"
-                  maskColor="rgba(0,0,0,0.7)"
-                  style={{ width: 150, height: 100 }}
-                />
+                <MiniMap nodeColor="#3b82f6" maskColor="rgba(0,0,0,0.7)" style={{ width: 140, height: 90 }} />
               </ReactFlow>
             ) : (
-              <div className="flex items-center justify-center h-full text-sm text-zinc-500">
-                No services detected in analysis. Try re-analyzing.
+              <div className="flex items-center justify-center h-full text-sm text-zinc-500">No services detected. Try re-analyzing.</div>
+            )}
+
+            {/* Service detail panel */}
+            {selectedService && (
+              <div className="absolute top-4 right-4 w-80 max-h-[calc(100vh-240px)] overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-900/95 backdrop-blur-xl shadow-2xl z-10">
+                <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold">{selectedService.name}</h3>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400">{selectedService.type}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400">{selectedService.tier}</span>
+                    </div>
+                  </div>
+                  <button onClick={() => setSelectedService(null)} className="p-1 rounded hover:bg-zinc-800"><X className="w-3.5 h-3.5 text-zinc-400" /></button>
+                </div>
+                <div className="p-4 space-y-4">
+                  <p className="text-xs text-zinc-400 leading-relaxed">{selectedService.description}</p>
+
+                  {selectedService.endpoints.length > 0 && (
+                    <div>
+                      <h4 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2">Endpoints</h4>
+                      <div className="space-y-1">
+                        {selectedService.endpoints.map((ep, i) => (
+                          <div key={i} className="flex items-start gap-2 text-[11px]">
+                            <span className={`px-1 py-0.5 rounded font-mono text-[9px] font-bold flex-shrink-0 ${
+                              ep.method === 'GET' ? 'bg-green-500/20 text-green-400' :
+                              ep.method === 'POST' ? 'bg-blue-500/20 text-blue-400' :
+                              ep.method === 'PUT' ? 'bg-yellow-500/20 text-yellow-400' :
+                              'bg-red-500/20 text-red-400'
+                            }`}>{ep.method}</span>
+                            <span className="text-zinc-300 font-mono">{ep.path}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedService.databases.length > 0 && (
+                    <div>
+                      <h4 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2">Databases</h4>
+                      <div className="space-y-1">
+                        {selectedService.databases.map((db, i) => (
+                          <div key={i} className="flex items-center gap-2 text-[11px]">
+                            <Database className="w-3 h-3 text-zinc-500" />
+                            <span className="text-zinc-300">{db.name}</span>
+                            <span className="text-zinc-600">({db.type})</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Show connections for this service */}
+                  {parsed && (() => {
+                    const related = parsed.connections.filter(c => c.from === selectedService.id || c.to === selectedService.id);
+                    return related.length > 0 ? (
+                      <div>
+                        <h4 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2">Connections</h4>
+                        <div className="space-y-1">
+                          {related.map((c, i) => (
+                            <div key={i} className="flex items-center gap-2 text-[11px]">
+                              <span className="text-zinc-400">{c.from === selectedService.id ? '→' : '←'}</span>
+                              <span className="text-zinc-300">{c.from === selectedService.id ? c.to : c.from}</span>
+                              <span className="px-1 py-0.5 rounded text-[9px] bg-zinc-800 text-zinc-500">{c.protocol}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
               </div>
             )}
           </div>
@@ -294,17 +348,14 @@ export default function RepoDetailPage() {
 
         {activeTab === 'issues' && parsed && (
           <div className="max-w-4xl mx-auto px-6 py-6">
-            {parsed.issues.length === 0 ? (
-              <div className="text-center py-12 text-sm text-zinc-500">No issues detected.</div>
-            ) : (
-              <div className="space-y-3">
+            {parsed.issues.length === 0 ? <div className="text-center py-12 text-sm text-zinc-500">No issues detected.</div> : (
+              <div className="space-y-2">
                 {parsed.issues.map((issue, i) => (
                   <div key={i} className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4">
                     <div className="flex items-start gap-3">
-                      <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0`}
-                        style={{ backgroundColor: severityColors[issue.severity] || '#6b7280' }} />
+                      <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style={{ backgroundColor: severityColors[issue.severity] || '#6b7280' }} />
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h4 className="text-sm font-medium">{issue.title}</h4>
                           <span className="px-1.5 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400">{issue.type.replace(/_/g, ' ')}</span>
                           <span className="text-[10px]" style={{ color: severityColors[issue.severity] }}>{issue.severity}</span>
@@ -322,9 +373,7 @@ export default function RepoDetailPage() {
 
         {activeTab === 'xml' && (
           <div className="max-w-5xl mx-auto px-6 py-6">
-            <pre className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 text-xs text-zinc-300 overflow-auto max-h-[calc(100vh-280px)] font-mono leading-relaxed">
-              {xml || 'No XML available'}
-            </pre>
+            <pre className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 text-xs text-zinc-300 overflow-auto max-h-[calc(100vh-260px)] font-mono leading-relaxed">{xml || 'No XML'}</pre>
           </div>
         )}
       </div>

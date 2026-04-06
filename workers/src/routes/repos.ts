@@ -385,23 +385,48 @@ async function runAnalysis(env: Env, analysisId: string, repoId: string, tenantI
     .map(f => `--- ${f.path} ---\n${f.content.slice(0, 2000)}`)
     .join('\n\n');
 
-  const prompt = `Analyze this repo and output XML architecture doc.
+  const prompt = `You are analyzing a GitHub repository to produce a DETAILED architecture document. Be thorough — list EVERY service, database, API endpoint, queue, external integration, and data flow you can identify from the file tree and source code.
 
-Repo: ${fullName} (branch: ${branch})
+Repository: ${fullName} (branch: ${branch})
 
-FILES:
+FILE TREE (every file in the repo):
 ${fileTree}
 
-KEY CONTENTS:
+SOURCE FILES:
 ${fileSummaries}
 
-Output this XML (no markdown, only XML):
+Instructions:
+1. List ALL services/modules (APIs, workers, frontends, databases, caches, queues, external services)
+2. For each service, include its port, tech stack, and what it does
+3. List ALL connections — how services talk to each other (HTTP, gRPC, Kafka, Redis, database, WebSocket)
+4. Include the database name/type for each DB connection
+5. Flag issues: dead code, missing tests, circular deps, no error handling, security concerns
+
+Output ONLY this XML (no markdown fences, no commentary):
 <architecture repo="${fullName}" branch="${branch}" analyzed_at="${new Date().toISOString()}">
-<summary>...</summary>
-<tech_stack><technology name="" category="language|framework|database|tool" /></tech_stack>
-<services><service id="" name="" type="api|worker|frontend|library" tier="frontend|gateway|business|infrastructure"><description>...</description></service></services>
-<connections><connection from="" to="" protocol="" direction="one-way|two-way" description="" /></connections>
-<issues><issue type="dangling_code|circular_dependency|missing_docs|dead_import" severity="info|warning|error" title="">...</issue></issues>
+<summary>2-3 sentence description of what this project does</summary>
+<tech_stack>
+<technology name="NAME" category="language|framework|database|messaging|cache|tool|cloud" />
+</tech_stack>
+<services>
+<service id="kebab-id" name="Human Name" type="api|worker|frontend|library|database|cache|queue" tier="frontend|gateway|business|data|infrastructure">
+<description>What this service does, its port, key responsibilities</description>
+<endpoints>
+<endpoint method="GET|POST|PUT|DELETE" path="/api/..." description="what it does" />
+</endpoints>
+<databases>
+<database type="postgresql|redis|neo4j|mongodb" name="db_name" purpose="what data" />
+</databases>
+</service>
+</services>
+<connections>
+<connection from="service-id" to="service-id" protocol="http|kafka|redis|grpc|websocket|jdbc" direction="one-way|two-way" label="short label" description="what data flows" />
+</connections>
+<issues>
+<issue type="dangling_code|circular_dependency|missing_docs|dead_import|no_tests|security_concern|no_error_handling" severity="info|warning|error" title="Short title" file_path="path/to/file">
+Description of the issue and why it matters
+</issue>
+</issues>
 </architecture>`;
 
   // 5. Call Workers AI (fp8 quantized for speed)
@@ -412,7 +437,7 @@ Output this XML (no markdown, only XML):
         { role: 'system', content: 'You are a software architect. Output ONLY valid XML. No markdown fences, no explanation.' },
         { role: 'user', content: prompt },
       ],
-      max_tokens: 2048,
+      max_tokens: 3072,
     });
     xmlContent = (aiResponse as { response?: string }).response || '';
     if (!xmlContent || xmlContent.length < 50) {
