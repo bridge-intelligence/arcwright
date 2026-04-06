@@ -422,7 +422,7 @@ export default function RepoDetailPage() {
         )}
 
         {activeTab === 'flows' && parsed && (
-          <div className="max-w-4xl mx-auto px-6 py-6">
+          <div className="max-w-4xl mx-auto px-6 py-6 overflow-y-auto max-h-[calc(100vh-200px)]">
             {parsed.flows.length === 0 ? <div className="text-center py-12 text-sm text-zinc-500">No flows.</div> : (
               <div className="space-y-4">
                 {parsed.flows.map(flow => (
@@ -452,7 +452,7 @@ export default function RepoDetailPage() {
         )}
 
         {activeTab === 'issues' && parsed && (
-          <div className="max-w-4xl mx-auto px-6 py-6">
+          <div className="max-w-4xl mx-auto px-6 py-6 overflow-y-auto max-h-[calc(100vh-200px)]">
             {parsed.issues.length === 0 ? <div className="text-center py-12 text-sm text-zinc-500">No issues.</div> : (
               <div className="space-y-2">
                 {parsed.issues.map((issue, i) => (
