@@ -202,19 +202,16 @@ export class ArchitectureViewProvider implements vscode.WebviewViewProvider {
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this._extensionUri, 'dist', 'webview', 'assets', 'index.js')
     );
-    const styleUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._extensionUri, 'dist', 'webview', 'assets', 'index.css')
-    );
 
     const nonce = getNonce();
 
+    // CSS is injected inline by the IIFE bundle, so no separate stylesheet needed
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
-  <link rel="stylesheet" href="${styleUri}">
   <title>Arcwright</title>
 </head>
 <body>

@@ -8,12 +8,15 @@ export default defineConfig({
   build: {
     outDir: resolve(__dirname, 'dist/webview'),
     emptyOutDir: true,
+    // Build as IIFE (not ESM) for VS Code webview compatibility
     rollupOptions: {
-      input: resolve(__dirname, 'src/webview/index.html'),
+      input: resolve(__dirname, 'src/webview/main.tsx'),
       output: {
-        entryFileNames: 'assets/[name].js',
-        chunkFileNames: 'assets/[name].js',
+        format: 'iife',
+        entryFileNames: 'assets/index.js',
         assetFileNames: 'assets/[name].[ext]',
+        // No code splitting for IIFE
+        inlineDynamicImports: true,
       },
     },
   },
