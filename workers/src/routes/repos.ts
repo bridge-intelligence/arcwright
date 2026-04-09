@@ -418,6 +418,50 @@ repos.get('/:id/architecture.xml', async (c) => {
   });
 });
 
+// Import XML architecture doc directly (manual upload / pre-crafted)
+repos.put('/:id/architecture.xml', async (c) => {
+  const user = c.get('user');
+  const repoId = c.req.param('id');
+
+  const repo = await c.env.DB.prepare(
+    'SELECT * FROM repos WHERE id = ? AND tenant_id = ?'
+  ).bind(repoId, user.tenant_id).first();
+
+  if (!repo) return c.json({ error: 'Not found' }, 404);
+
+  const contentType = c.req.header('content-type') || '';
+  let xml: string;
+
+  if (contentType.includes('application/xml') || contentType.includes('text/xml')) {
+    xml = await c.req.text();
+  } else {
+    const body = await c.req.json<{ xml: string }>().catch(() => ({ xml: '' }));
+    xml = body.xml;
+  }
+
+  if (!xml || xml.length < 50) {
+    return c.json({ error: 'XML body required (min 50 chars)' }, 400);
+  }
+
+  const servicesCount = (xml.match(/<service /g) || []).length;
+  const issuesCount = (xml.match(/<issue /g) || []).length;
+  const summaryMatch = xml.match(/<summary>([\s\S]*?)<\/summary>/);
+  const summary = summaryMatch ? summaryMatch[1].trim().slice(0, 500) : `${servicesCount} services, ${issuesCount} issues (manual import)`;
+
+  const analysisId = crypto.randomUUID();
+
+  await c.env.DB.prepare(
+    `INSERT INTO analyses (id, repo_id, tenant_id, branch, source, model, xml_content, services_count, issues_count, summary, status, started_at, completed_at)
+     VALUES (?, ?, ?, ?, 'manual', 'manual-import', ?, ?, ?, ?, 'completed', datetime('now'), datetime('now'))`
+  ).bind(analysisId, repoId, user.tenant_id, repo.default_branch || 'dev', xml, servicesCount, issuesCount, summary).run();
+
+  await c.env.DB.prepare(
+    `UPDATE repos SET status = 'ready', last_analyzed_at = datetime('now') WHERE id = ?`
+  ).bind(repoId).run();
+
+  return c.json({ ok: true, analysis_id: analysisId, services: servicesCount, issues: issuesCount });
+});
+
 // Toggle auto-sync for a repo
 repos.patch('/:id/auto-sync', async (c) => {
   const user = c.get('user');

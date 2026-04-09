@@ -138,9 +138,10 @@
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
+    "@types/node": "^25.5.2",
     "@types/vscode": "^1.85.0",
-    "@xyflow/react": "^12.10.1",
     "@vitejs/plugin-react": "^5.1.1",
+    "@xyflow/react": "^12.10.1",
     "esbuild": "^0.25.0",
     "lucide-react": "^0.577.0",
     "react": "^19.2.0",

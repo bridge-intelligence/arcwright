@@ -8,7 +8,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import {
   ArrowLeft, AlertCircle, CheckCircle2, Loader2, FileCode2,
-  Server, ExternalLink, Workflow, X, Database, Search, RefreshCw, ChevronDown, Zap, Bot, Radio, Lightbulb,
+  Server, ExternalLink, Workflow, X, Database, Search, RefreshCw, ChevronDown, Zap, Bot, Radio, Lightbulb, Upload,
 } from 'lucide-react';
 import { reposApi, type RepoDetail } from '../services/api';
 import ArchServiceNode, { type ArchNodeData } from '../components/ArchServiceNode';
@@ -663,8 +663,9 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
   repoId: string; repoName?: string; defaultBranch: string; onComplete: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<'engine' | 'files'>('engine');
+  const [tab, setTab] = useState<'engine' | 'files' | 'import'>('engine');
   const [analyzing, setAnalyzing] = useState(false);
+  const [importXml, setImportXml] = useState('');
   const [selectedSource, setSelectedSource] = useState<'cloudflare-ai' | 'claude-api' | 'litellm'>('cloudflare-ai');
   const [cfModel, setCfModel] = useState('llama-8b');
   const [branch, setBranch] = useState(defaultBranch);
@@ -701,6 +702,26 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Analysis failed');
     } finally { setAnalyzing(false); }
+  };
+
+  const handleImportXml = async () => {
+    setAnalyzing(true); setResult(null); setError(null);
+    try {
+      const res = await reposApi.importXml(repoId, importXml);
+      setResult(res as never);
+      onComplete();
+      setTimeout(() => setOpen(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Import failed');
+    } finally { setAnalyzing(false); }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setImportXml(reader.result as string);
+    reader.readAsText(file);
   };
 
   const toggleFile = (path: string) => setSelectedFiles(prev => { const n = new Set(prev); if (n.has(path)) n.delete(path); else n.add(path); return n; });
@@ -740,6 +761,9 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
             <button onClick={() => setTab('engine')} className={`px-3 py-1.5 text-[10px] font-medium border-b-2 ${tab === 'engine' ? 'border-blue-500 text-white' : 'border-transparent text-zinc-500'}`}>Engine & Branch</button>
             <button onClick={() => { setTab('files'); loadTree(); }} className={`px-3 py-1.5 text-[10px] font-medium border-b-2 ${tab === 'files' ? 'border-blue-500 text-white' : 'border-transparent text-zinc-500'}`}>
               Files {selectedFiles.size > 0 && <span className="ml-1 px-1 rounded-full bg-blue-500/20 text-blue-400 text-[8px]">{selectedFiles.size}</span>}
+            </button>
+            <button onClick={() => setTab('import')} className={`px-3 py-1.5 text-[10px] font-medium border-b-2 flex items-center gap-1 ${tab === 'import' ? 'border-emerald-500 text-white' : 'border-transparent text-zinc-500'}`}>
+              <Upload className="w-3 h-3" /> Import
             </button>
           </div>
 
@@ -799,6 +823,21 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
               </>
             )}
 
+            {tab === 'import' && (
+              <>
+                <div>
+                  <label className="text-[10px] text-zinc-500 mb-1 block">Upload architecture XML file or paste XML below</label>
+                  <input type="file" accept=".xml,text/xml,application/xml" onChange={handleFileUpload}
+                    className="w-full text-[10px] text-zinc-400 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border file:border-zinc-700 file:bg-zinc-800 file:text-[10px] file:text-emerald-400 file:cursor-pointer hover:file:bg-zinc-700" />
+                </div>
+                <textarea value={importXml} onChange={e => setImportXml(e.target.value)} placeholder="<?xml version=&quot;1.0&quot;?>\n<architecture ...>"
+                  className="w-full h-48 px-2.5 py-2 rounded-lg border border-zinc-700 bg-zinc-800 text-[10px] text-zinc-300 font-mono placeholder-zinc-600 focus:outline-none focus:border-emerald-500/50 resize-none" />
+                <div className="text-[9px] text-zinc-500">
+                  {importXml.length > 0 ? `${importXml.length.toLocaleString()} chars · ${(importXml.match(/<service /g) || []).length} services · ${(importXml.match(/<issue /g) || []).length} issues` : 'No XML loaded'}
+                </div>
+              </>
+            )}
+
             {tab === 'files' && (
               <>
                 <div className="relative">
@@ -839,11 +878,19 @@ function AnalyzeDropdown({ repoId, defaultBranch, onComplete }: {
             {result?.cost && <div className="text-[10px] text-green-400 bg-green-500/10 rounded-lg px-2.5 py-1.5">Done — {result.cost.model} · {result.cost.input_tokens.toLocaleString()} in / {result.cost.output_tokens.toLocaleString()} out · ${result.cost.cost_usd.toFixed(4)}</div>}
             <div className="flex gap-2">
               <button onClick={() => setOpen(false)} className="flex-1 px-3 py-1.5 rounded-lg border border-zinc-700 text-[11px] text-zinc-400 hover:bg-zinc-800">Cancel</button>
-              <button onClick={handleAnalyze} disabled={analyzing || !branch.trim()}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[11px] font-medium text-white">
-                {analyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                {analyzing ? 'Analyzing...' : `Run${selectedFiles.size > 0 ? ` (${selectedFiles.size} files)` : ''}`}
-              </button>
+              {tab === 'import' ? (
+                <button onClick={handleImportXml} disabled={analyzing || importXml.length < 50}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[11px] font-medium text-white">
+                  {analyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+                  {analyzing ? 'Importing...' : 'Import XML'}
+                </button>
+              ) : (
+                <button onClick={handleAnalyze} disabled={analyzing || !branch.trim()}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[11px] font-medium text-white">
+                  {analyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                  {analyzing ? 'Analyzing...' : `Run${selectedFiles.size > 0 ? ` (${selectedFiles.size} files)` : ''}`}
+                </button>
+              )}
             </div>
           </div>
         </div>
