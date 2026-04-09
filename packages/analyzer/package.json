@@ -1,0 +1,38 @@
+{
+  "name": "@arcwright/analyzer",
+  "version": "0.1.0",
+  "description": "Static analysis engine for TypeScript/JavaScript codebases — import graphs, dead code detection, circular dependency detection, architecture boundary enforcement",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "typescript",
+    "static-analysis",
+    "dependency-graph",
+    "dead-code",
+    "circular-dependencies",
+    "architecture"
+  ],
+  "author": "Bridge Intelligence",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bridge-intelligence/arcwright",
+    "directory": "packages/analyzer"
+  },
+  "dependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2"
+  }
+}

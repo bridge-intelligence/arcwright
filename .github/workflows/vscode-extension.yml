@@ -1,0 +1,73 @@
+name: VS Code Extension — Build & Publish
+
+on:
+  push:
+    tags:
+      - 'vscode-v*'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish to Marketplace'
+        type: boolean
+        default: false
+
+defaults:
+  run:
+    working-directory: vscode-extension
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Package VSIX
+        run: npx @vscode/vsce package --allow-missing-repository --skip-license
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arcwright-vsix
+          path: vscode-extension/*.vsix
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/vscode-v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Publish to VS Code Marketplace
+        run: npx @vscode/vsce publish --allow-missing-repository --skip-license
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Publish to Open VSX Registry
+        run: npx ovsx publish --skip-license
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        continue-on-error: true
