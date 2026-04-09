@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import type { Node, Edge } from '@xyflow/react';
 import { MarkerType } from '@xyflow/react';
-import { ecosystemData, protocolColors } from '../data/ecosystem';
-import type { ServiceCategory, CommProtocol, ServiceTier } from '../data/ecosystem';
+import { protocolColors } from '../data/ecosystem';
+import type { EcosystemData, ServiceCategory, CommProtocol, ServiceTier } from '../data/ecosystem';
 import type { ServiceNodeData } from '../components/ServiceNode';
 
 // Tier-based Y positions with generous spacing
@@ -18,12 +18,12 @@ const TIER_Y: Record<ServiceTier, number> = {
 };
 
 // Place services within tiers, spreading horizontally
-function computePositions(hiddenTiers: Set<ServiceTier>) {
+function computePositions(services: EcosystemData['services'], hiddenTiers: Set<ServiceTier>) {
   const positions: Record<string, { x: number; y: number }> = {};
 
   // Group services by tier
   const byTier: Record<string, string[]> = {};
-  for (const s of ecosystemData.services) {
+  for (const s of services) {
     if (hiddenTiers.has(s.tier)) continue;
     if (!byTier[s.tier]) byTier[s.tier] = [];
     byTier[s.tier].push(s.id);
@@ -57,6 +57,7 @@ function computePositions(hiddenTiers: Set<ServiceTier>) {
 }
 
 export function useEcosystemGraph(
+  data: EcosystemData,
   healthStatuses: Record<string, 'healthy' | 'unhealthy' | 'unknown' | 'checking'>,
   activeCategories: Set<ServiceCategory>,
   activeProtocols: Set<CommProtocol>,
@@ -66,9 +67,9 @@ export function useEcosystemGraph(
 ) {
   const { nodes, edges } = useMemo(() => {
     const lowerQuery = searchQuery.toLowerCase();
-    const positions = computePositions(hiddenTiers);
+    const positions = computePositions(data.services, hiddenTiers);
 
-    const nodes: Node<ServiceNodeData>[] = ecosystemData.services
+    const nodes: Node<ServiceNodeData>[] = data.services
       .filter(s => {
         if (hiddenTiers.has(s.tier)) return false;
         if (activeCategories.size > 0 && !activeCategories.has(s.category)) return false;
@@ -96,7 +97,7 @@ export function useEcosystemGraph(
 
     const visibleIds = new Set(nodes.map(n => n.id));
 
-    const edges: Edge[] = ecosystemData.connections
+    const edges: Edge[] = data.connections
       .filter(c => {
         if (!visibleIds.has(c.source) || !visibleIds.has(c.target)) return false;
         if (activeProtocols.size > 0 && !activeProtocols.has(c.protocol)) return false;
@@ -130,7 +131,7 @@ export function useEcosystemGraph(
       });
 
     return { nodes, edges };
-  }, [healthStatuses, activeCategories, activeProtocols, hiddenTiers, searchQuery, showEdgeLabels]);
+  }, [data, healthStatuses, activeCategories, activeProtocols, hiddenTiers, searchQuery, showEdgeLabels]);
 
   return { nodes, edges };
 }

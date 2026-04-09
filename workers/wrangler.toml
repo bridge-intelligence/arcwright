@@ -6,6 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 ENVIRONMENT = "development"
 APP_URL = "https://arcwright.pages.dev"
+ALLOWED_EXPLORE_DOMAINS = "binari.digital"
 
 # Secrets (set via `wrangler secret put`):
 # GOOGLE_CLIENT_ID
@@ -25,7 +26,7 @@ binding = "AI"
 # --- Environment overrides ---
 
 [env.production]
-vars = { ENVIRONMENT = "production", APP_URL = "https://arcwright.pages.dev" }
+vars = { ENVIRONMENT = "production", APP_URL = "https://arcwright.pages.dev", ALLOWED_EXPLORE_DOMAINS = "binari.digital" }
 
 [[env.production.d1_databases]]
 binding = "DB"

@@ -6,6 +6,7 @@ import projects from './routes/projects';
 import repos from './routes/repos';
 import settings from './routes/settings';
 import webhooks from './routes/webhooks';
+import explore from './routes/explore';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -30,6 +31,7 @@ app.route('/api/projects', projects);
 app.route('/api/repos', repos);
 app.route('/api/settings', settings);
 app.route('/api/webhooks', webhooks);
+app.route('/api/explore', explore);
 
 // 404 fallback for API routes
 app.all('/api/*', (c) => c.json({ error: 'Not found' }, 404));

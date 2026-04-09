@@ -1,13 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ecosystemData } from '../data/ecosystem';
+import type { EcosystemService } from '../data/ecosystem';
 
 type HealthStatus = 'healthy' | 'unhealthy' | 'unknown' | 'checking';
 
 // Map service IDs to their actual health check URLs
-// In a real deployment, these would point to actual service endpoints
 const HEALTH_ENDPOINTS: Record<string, string> = {
-  // These are the external URLs that can be pinged from a browser
-  // In practice, CORS may block these — so we treat timeout/error as "unknown"
   'gateway': 'https://api.gateway.service.d.bridgeintelligence.ltd/actuator/health',
   'orchestra': 'https://api.orchestra.service.d.bridgeintelligence.ltd/actuator/health',
   'custody': 'https://api.custody.service.d.bridgeintelligence.ltd/actuator/health',
@@ -17,14 +14,29 @@ const HEALTH_ENDPOINTS: Record<string, string> = {
   'website': 'https://bridgeintelligence.ltd/',
 };
 
-export function useHealthChecks() {
+export function useHealthChecks(services?: EcosystemService[]) {
   const [statuses, setStatuses] = useState<Record<string, HealthStatus>>(() => {
     const initial: Record<string, HealthStatus> = {};
-    ecosystemData.services.forEach(s => {
-      initial[s.id] = s.healthCheck || HEALTH_ENDPOINTS[s.id] ? 'unknown' : 'unknown';
-    });
+    if (services) {
+      services.forEach(s => {
+        initial[s.id] = 'unknown';
+      });
+    }
     return initial;
   });
+
+  // Re-initialize statuses when services load
+  useEffect(() => {
+    if (services && services.length > 0) {
+      setStatuses(prev => {
+        const next: Record<string, HealthStatus> = {};
+        services.forEach(s => {
+          next[s.id] = prev[s.id] || 'unknown';
+        });
+        return next;
+      });
+    }
+  }, [services]);
 
   const checkHealth = useCallback(async (serviceId: string, url: string) => {
     setStatuses(prev => ({ ...prev, [serviceId]: 'checking' }));
@@ -33,12 +45,10 @@ export function useHealthChecks() {
       const timeout = setTimeout(() => controller.abort(), 5000);
       const response = await fetch(url, {
         method: 'GET',
-        mode: 'no-cors', // Will get opaque response but proves server is up
+        mode: 'no-cors',
         signal: controller.signal,
       });
       clearTimeout(timeout);
-      // With no-cors, we get opaque response (type: "opaque", status: 0)
-      // But if fetch succeeds without error, the server is reachable
       setStatuses(prev => ({ ...prev, [serviceId]: response.type === 'opaque' ? 'healthy' : response.ok ? 'healthy' : 'unhealthy' }));
     } catch {
       setStatuses(prev => ({ ...prev, [serviceId]: 'unhealthy' }));
@@ -52,12 +62,11 @@ export function useHealthChecks() {
   }, [checkHealth]);
 
   useEffect(() => {
-    // Run checks on mount
+    if (!services || services.length === 0) return;
     runAllChecks();
-    // Re-check every 30 seconds
     const interval = setInterval(runAllChecks, 30000);
     return () => clearInterval(interval);
-  }, [runAllChecks]);
+  }, [runAllChecks, services]);
 
   return { statuses, runAllChecks };
 }

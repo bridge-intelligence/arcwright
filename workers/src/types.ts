@@ -9,6 +9,7 @@ export interface Env {
   GITHUB_CLIENT_SECRET: string;
   JWT_SECRET: string;
   ANTHROPIC_API_KEY?: string;
+  ALLOWED_EXPLORE_DOMAINS: string;
 }
 
 export type AnalysisSource = 'cloudflare-ai' | 'claude-api' | 'claude-code';

@@ -1,0 +1,15 @@
+.vscode/**
+src/**
+node_modules/**
+*.ts
+!dist/**
+!dist/webview/**
+!media/**
+!package.json
+!README.md
+!CHANGELOG.md
+!LICENSE
+esbuild.mjs
+vite.config.ts
+tsconfig.json
+.gitignore

@@ -27,7 +27,7 @@ function AppRoutes() {
       <Route path="/repo/:id" element={<ProtectedRoute><RepoDetailPage /></ProtectedRoute>} />
       <Route path="/project/:id" element={<ProtectedRoute><ProjectViewPage /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-      <Route path="/explore" element={<ExplorePage />} />
+      <Route path="/explore" element={<ProtectedRoute><ExplorePage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

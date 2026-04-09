@@ -1,19 +1,20 @@
-import { ecosystemData } from '../data/ecosystem';
+import type { EcosystemData } from '../data/ecosystem';
 
 interface StatsBarProps {
   healthStatuses: Record<string, 'healthy' | 'unhealthy' | 'unknown' | 'checking'>;
+  data?: EcosystemData;
 }
 
-export default function StatsBar({ healthStatuses }: StatsBarProps) {
-  const total = ecosystemData.services.length;
-  const active = ecosystemData.services.filter(s => s.status === 'active').length;
-  const scaffold = ecosystemData.services.filter(s => s.status === 'scaffold').length;
-  const placeholder = ecosystemData.services.filter(s => s.status === 'placeholder').length;
+export default function StatsBar({ healthStatuses, data }: StatsBarProps) {
+  const total = data?.services.length || 0;
+  const active = data?.services.filter(s => s.status === 'active').length || 0;
+  const scaffold = data?.services.filter(s => s.status === 'scaffold').length || 0;
+  const placeholder = data?.services.filter(s => s.status === 'placeholder').length || 0;
   const healthy = Object.values(healthStatuses).filter(s => s === 'healthy').length;
   const unhealthy = Object.values(healthStatuses).filter(s => s === 'unhealthy').length;
-  const totalKafka = ecosystemData.services.reduce((acc, s) => acc + s.kafkaTopics.length, 0);
-  const totalEndpoints = ecosystemData.services.reduce((acc, s) => acc + s.endpoints.length, 0);
-  const totalConnections = ecosystemData.connections.length;
+  const totalKafka = data?.services.reduce((acc, s) => acc + s.kafkaTopics.length, 0) || 0;
+  const totalEndpoints = data?.services.reduce((acc, s) => acc + s.endpoints.length, 0) || 0;
+  const totalConnections = data?.connections.length || 0;
 
   return (
     <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 bg-zinc-900/95 border border-zinc-800 rounded-xl px-4 py-2 backdrop-blur-sm">

@@ -1,0 +1,150 @@
+{
+  "name": "arcwright",
+  "displayName": "Arcwright — Architecture Intelligence",
+  "description": "Live architecture visualization for AI-assisted development. See your codebase structure, detect dead code and circular dependencies, and instruct AI through the visual layer.",
+  "version": "0.1.0",
+  "publisher": "bridge-intelligence",
+  "license": "SEE LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bridge-intelligence/arcwright"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "architecture",
+    "dependency graph",
+    "dead code",
+    "circular dependencies",
+    "ai",
+    "claude",
+    "visualization"
+  ],
+  "icon": "media/icon.png",
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "arcwright.showArchitecture",
+        "title": "Arcwright: Show Architecture",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "arcwright.analyzeWorkspace",
+        "title": "Arcwright: Analyze Workspace",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "arcwright.focusCurrentFile",
+        "title": "Arcwright: Focus Current File in Graph",
+        "icon": "$(target)"
+      },
+      {
+        "command": "arcwright.login",
+        "title": "Arcwright: Login to Cloud API"
+      },
+      {
+        "command": "arcwright.logout",
+        "title": "Arcwright: Logout from Cloud API"
+      },
+      {
+        "command": "arcwright.analyzeWithAI",
+        "title": "Arcwright: Analyze with AI (Cloud)",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "arcwright.askClaude",
+        "title": "Arcwright: Ask Claude About This File",
+        "icon": "$(comment-discussion)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "arcwright-sidebar",
+          "title": "Arcwright",
+          "icon": "media/sidebar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "arcwright-sidebar": [
+        {
+          "type": "webview",
+          "id": "arcwright.architectureView",
+          "name": "Architecture"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Arcwright",
+      "properties": {
+        "arcwright.excludePatterns": {
+          "type": "array",
+          "default": [
+            "**/node_modules/**",
+            "**/dist/**",
+            "**/build/**",
+            "**/.git/**",
+            "**/coverage/**"
+          ],
+          "description": "Glob patterns to exclude from analysis"
+        },
+        "arcwright.autoAnalyze": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically analyze workspace on open and file changes"
+        },
+        "arcwright.apiUrl": {
+          "type": "string",
+          "default": "https://arcwright-api.hamza-dastagir.workers.dev/api",
+          "description": "Arcwright cloud API URL for AI-powered analysis"
+        },
+        "arcwright.maxFiles": {
+          "type": "number",
+          "default": 500,
+          "description": "Maximum number of files to analyze"
+        }
+      }
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "arcwright.analyzeWorkspace",
+          "when": "view == arcwright.architectureView",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "npm run build:extension && npm run build:webview",
+    "build:extension": "node esbuild.mjs",
+    "build:webview": "vite build",
+    "watch": "node esbuild.mjs --watch",
+    "dev:webview": "vite",
+    "package": "vsce package",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "typescript": "~5.7.0"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@types/vscode": "^1.85.0",
+    "@xyflow/react": "^12.10.1",
+    "@vitejs/plugin-react": "^5.1.1",
+    "esbuild": "^0.25.0",
+    "lucide-react": "^0.577.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "vite": "^7.3.1"
+  }
+}

@@ -127,6 +127,22 @@ export const reposApi = {
     return res.text();
   },
   retry: (id: string) => request<{ ok: boolean }>(`/repos/${id}/retry`, { method: 'POST' }),
+  importXml: async (id: string, xml: string): Promise<{ ok: boolean; services: number; issues: number }> => {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/repos/${id}/architecture.xml`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/xml',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: xml,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error((body as { error?: string }).error || res.statusText);
+    }
+    return res.json();
+  },
   getTree: (id: string, branch?: string) => request<{
     branch: string; total: number; files: Array<{ path: string; size: number }>;
   }>(`/repos/${id}/tree${branch ? `?branch=${branch}` : ''}`),
@@ -181,4 +197,9 @@ export const projectsApi = {
     body: JSON.stringify(data),
   }),
   delete: (id: string) => request<{ ok: boolean }>(`/projects/${id}`, { method: 'DELETE' }),
+};
+
+// --- Explore ---
+export const exploreApi = {
+  getEcosystem: () => request<import('../data/ecosystem').EcosystemData>('/explore/ecosystem'),
 };
