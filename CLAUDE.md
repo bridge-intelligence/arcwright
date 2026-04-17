@@ -14,6 +14,20 @@ You MUST follow this workflow every time.
 6. No secrets ever in git. No API keys, tokens, `.env`, kubeconfigs, private certs, or dumps.
 7. Don't "clean up" unrelated code. Only touch what the Issue requires.
 
+## 8. Dev-mirrors-prod discipline (NON-NEGOTIABLE, effective 2026-04-18)
+
+Dev environment is a functional mirror of intended production behavior. Full rationale: https://github.com/bridge-intelligence/bridge-fmi-setup/blob/main/docs/21-dev-mirrors-prod-discipline.md
+
+1. **Every state change follows the same code path as prod.** No direct SQL INSERT/UPDATE/DELETE on production-shape tables outside a named migration or seed/remediation script. No direct Corda state mutations outside signed flows. No ad-hoc kubectl patches — everything via committed manifest + ArgoCD sync.
+2. **Dev schemas = prod schemas.** Migrations in the same order. No dev-only columns, tables, or constraints.
+3. **Dev topology = prod topology.** Every service and vNode that will exist in prod exists in dev. External counterparties (SBP Raast, UBL banking API, etc.) may be replaced by simulators, but the simulator must speak the same protocol.
+4. **Env config from a single source.** Env-specific values in Vault per env; defaults in application.yml in-repo. No hardcoded magic numbers, shortHashes, IBANs.
+5. **Everything replicable.** Every dev change reproducible in staging and prod via the same script/playbook/PR. No one-off fixes.
+6. **Everything logged.** Audit trail: migration filename + commit + issue + operator + timestamp.
+7. **Drift detection continuous.** `bridge-recon-service` runs drift checks on schedule. Zero-drift = baseline; any deviation = P0.
+
+**For Claude Code + AI agents:** When operating on dev, if an action would not replicate cleanly to prod — STOP and ask Hamza. Never run direct SQL on production-shape tables. Never bypass Corda flows. Never ad-hoc-edit kubectl. Never apply a fix that wouldn't survive namespace teardown + reapply. Always verify the full prod deployment intent before proposing a dev change.
+
 ## 2. Start-of-work checklist (required)
 Before creating an Issue or branch:
 1. Pull latest and inspect branch model:
